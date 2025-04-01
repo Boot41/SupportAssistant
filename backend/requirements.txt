@@ -5,3 +5,4 @@ python-dotenv==1.0.0
 openai==1.12.0
 websockets==12.0
 python-multipart==0.0.6
+motor==4.1.1

@@ -2,11 +2,13 @@ import asyncio
 import os
 import uuid
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from motor.motor_asyncio import AsyncIOMotorClient
 
 from agents import (
     Agent,
@@ -24,9 +26,10 @@ from agents import (
     WebSearchTool
 )
 
-# Load API key
+# Load API key and Mongo URI
 load_dotenv()
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+MONGODB_URI = os.getenv("MONGODB_URI")
 
 app = FastAPI()
 
@@ -39,6 +42,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# MongoDB setup
+# MongoDB setup with connection log (sync ping to avoid 'await' issue)
+try:
+    mongo_client = AsyncIOMotorClient(MONGODB_URI)
+    db = mongo_client["SupportAssistant"]
+    threads_collection = db["Threads"]
+    
+    # Do a blocking test of the connection using PyMongo-style sync
+    mongo_client.get_io_loop().run_until_complete(mongo_client.admin.command("ping"))
+    print("✅ Connected to MongoDB and ping successful.")
+except Exception as e:
+    print(f"❌ Failed to connect to MongoDB: {e}")
 # ----------------------
 # CONTEXT
 # ----------------------
@@ -46,7 +61,6 @@ class SupportContext(BaseModel):
     user_id: Optional[str] = None
     interview_id: Optional[str] = None
     transcript_found: Optional[bool] = None
-
 
 # ----------------------
 # TOOLS
@@ -59,13 +73,8 @@ async def check_transcript_exists(
     context: RunContextWrapper[SupportContext],
     interview_id: str
 ) -> str:
-    """
-    Mocks a tool call to check if a transcript exists.
-    """
     context.context.interview_id = interview_id
-
-    # MOCK LOGIC – in reality, you'd query your backend
-    if interview_id.endswith("5"):  # pretend IDs ending in 5 failed
+    if interview_id.endswith("5"):
         context.context.transcript_found = False
         return "Transcript not found. Kiran likely did not hear the user."
     else:
@@ -261,6 +270,7 @@ marketing_agent.handoffs.append(triage_agent)
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
+        self.operator_connections: Dict[str, WebSocket] = {}
         self.session_data: Dict[str, Dict[str, Any]] = {}
 
     async def connect(self, websocket: WebSocket, session_id: str):
@@ -269,84 +279,172 @@ class ConnectionManager:
         self.session_data[session_id] = {
             "current_agent": triage_agent,
             "input_items": [],
-            "context": SupportContext()
+            "context": SupportContext(),
+            "turn_id": 1,
+            "human_override": False,
+            "started_at": datetime.utcnow().isoformat() + "Z"
         }
 
+    async def connect_operator(self, websocket: WebSocket, session_id: str):
+        await websocket.accept()
+        self.operator_connections[session_id] = websocket
+
     def disconnect(self, session_id: str):
-        if session_id in self.active_connections:
-            del self.active_connections[session_id]
-        if session_id in self.session_data:
-            del self.session_data[session_id]
+        self.active_connections.pop(session_id, None)
+        self.operator_connections.pop(session_id, None)
+        self.session_data.pop(session_id, None)
 
     async def send_message(self, session_id: str, message: Dict[str, Any]):
         if session_id in self.active_connections:
             await self.active_connections[session_id].send_json(message)
 
+    async def send_to_operator(self, session_id: str, trace_event: Dict[str, Any]):
+        if session_id in self.operator_connections:
+            await self.operator_connections[session_id].send_json({
+                "type": "trace_event",
+                "trace": trace_event
+            })
+
 manager = ConnectionManager()
 
-# ----------------------
-# API ENDPOINTS
-# ----------------------
+async def log_trace_event(session_id: str, event: Dict[str, Any]):
+    await threads_collection.update_one(
+        {"session_id": session_id},
+        {"$push": {"conversation": event}},
+        upsert=True
+    )
+
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await manager.connect(websocket, session_id)
-    
     try:
         while True:
             data = await websocket.receive_json()
             user_message = data.get("message", "")
-            
             session_data = manager.session_data[session_id]
+
+            if session_data.get("human_override"):
+                await manager.send_to_operator(session_id, {
+                    "turn_id": session_data["turn_id"],
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "role": "user",
+                    "content": user_message
+                })
+                session_data["turn_id"] += 1
+                continue
+
             current_agent = session_data["current_agent"]
             input_items = session_data["input_items"]
             context = session_data["context"]
-            
-            # Add user message to input items
+
             input_items.append({"role": "user", "content": user_message})
-            
-            # Process with agent
+
+            await log_trace_event(session_id, {
+                "turn_id": session_data["turn_id"],
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "role": "user",
+                "content": user_message
+            })
+            await manager.send_to_operator(session_id, {
+                "turn_id": session_data["turn_id"],
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "role": "user",
+                "content": user_message
+            })
+            session_data["turn_id"] += 1
+
             with trace("Support Session", group_id=session_id):
                 result = await Runner.run(current_agent, input_items, context=context)
-                
-                # Process result items
+
                 for item in result.new_items:
                     agent_name = item.agent.name
-                    
+
                     if isinstance(item, MessageOutputItem):
                         message_text = ItemHelpers.text_message_output(item)
+                        event = {
+                            "turn_id": session_data["turn_id"],
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "role": "agent",
+                            "agent": agent_name,
+                            "content": message_text
+                        }
+                        await log_trace_event(session_id, event)
+                        await manager.send_to_operator(session_id, event)
                         await manager.send_message(session_id, {
                             "type": "message",
                             "agent": agent_name,
                             "content": message_text
                         })
-                        print(f"{agent_name}: {message_text}")
-                        
-                    elif isinstance(item, ToolCallItem):
-                        print(f"{agent_name}: [Tool called]")
-                        
+
                     elif isinstance(item, ToolCallOutputItem):
-                        print(f"{agent_name}: [Tool Output] {item.output}")
-                        
+                        await log_trace_event(session_id, {
+                            "turn_id": session_data["turn_id"],
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "role": "agent",
+                            "agent": agent_name,
+                            "tool_call": {
+                                "name": item.tool_name,
+                                "args": item.args,
+                                "output": item.output
+                            }
+                        })
+
                     elif isinstance(item, HandoffOutputItem):
-                        handoff_message = f"[Handoff] {item.source_agent.name} → {item.target_agent.name}"
-                        print(handoff_message)
+                        handoff_event = {
+                            "turn_id": session_data["turn_id"],
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "role": "agent",
+                            "agent": agent_name,
+                            "handoff": {
+                                "from": item.source_agent.name,
+                                "to": item.target_agent.name
+                            },
+                            "content": f"[Handoff] {item.source_agent.name} → {item.target_agent.name}"
+                        }
+                        await log_trace_event(session_id, handoff_event)
+                        await manager.send_to_operator(session_id, handoff_event)
                         await manager.send_message(session_id, {
                             "type": "handoff",
                             "source": item.source_agent.name,
                             "target": item.target_agent.name
                         })
-                    else:
-                        print(f"{agent_name}: (Unhandled item: {item.__class__.__name__})")
-                
-                # Update session data
-                manager.session_data[session_id]["input_items"] = result.to_input_list()
-                manager.session_data[session_id]["current_agent"] = result.last_agent
-                
+
+                session_data["input_items"] = result.to_input_list()
+                session_data["current_agent"] = result.last_agent
+                session_data["turn_id"] += 1
+
     except WebSocketDisconnect:
+        session_data = manager.session_data.get(session_id, {})
+        await threads_collection.update_one(
+            {"session_id": session_id},
+            {"$set": {"ended_at": datetime.utcnow().isoformat() + "Z"}},
+            upsert=True
+        )
         manager.disconnect(session_id)
-    except Exception as e:
-        print(f"Error: {str(e)}")
-        manager.disconnect(session_id)
+
+@app.websocket("/operator/{session_id}")
+async def operator_ws(websocket: WebSocket, session_id: str):
+    await manager.connect_operator(websocket, session_id)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            content = data.get("message")
+            if content:
+                await manager.send_message(session_id, {
+                    "type": "message",
+                    "agent": "HumanSupport",
+                    "content": content
+                })
+                await log_trace_event(session_id, {
+                    "turn_id": manager.session_data[session_id]["turn_id"],
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "role": "agent",
+                    "agent": "HumanSupport",
+                    "content": content
+                })
+                manager.session_data[session_id]["turn_id"] += 1
+    except WebSocketDisconnect:
+        manager.operator_connections.pop(session_id, None)
 
 @app.get("/")
 async def root():
@@ -356,9 +454,13 @@ async def root():
 async def generate_session_id():
     return {"session_id": uuid.uuid4().hex[:12]}
 
-# ----------------------
-# MAIN
-# ----------------------
+@app.post("/override/{session_id}")
+async def override_session(session_id: str):
+    if session_id in manager.session_data:
+        manager.session_data[session_id]["human_override"] = True
+        return {"message": "Human override enabled for this session."}
+    return {"error": "Session not found."}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
