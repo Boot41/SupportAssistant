@@ -185,6 +185,23 @@ body {
   animation-delay: 0.6s;
 }
 
+.message-content {
+  line-height: 1.5;
+}
+
+.message-content strong {
+  font-weight: 600;
+}
+
+.message-content .list-item {
+  margin-bottom: 0.5rem;
+}
+
+.message-content br {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
 @keyframes typing {
   0% {
     opacity: 0.4;
