@@ -267,7 +267,8 @@ class ConnectionManager:
             "turn_id": 1,
             "human_override": False,
             "started_at": datetime.utcnow().isoformat() + "Z",
-            "user_id": None
+            "user_id": None,
+            "resolved": False
         }
 
     async def connect_operator(self, websocket: WebSocket, session_id: str):
@@ -308,7 +309,8 @@ async def log_trace_event(session_id: str, event: Dict[str, Any]):
             "$setOnInsert": {
                 "session_id": session_id,
                 "user_id": manager.session_data[session_id].get("user_id"),
-                "started_at": manager.session_data[session_id].get("started_at")
+                "started_at": manager.session_data[session_id].get("started_at"),
+                "resolved": False
             }
         },
         upsert=True
@@ -498,6 +500,16 @@ async def override_session(session_id: str):
         return {"message": "Human override enabled for this session."}
     return {"error": "Session not found."}
 
+@app.post("/resolve/{session_id}")
+async def resolve_session(session_id: str):
+    if session_id in manager.session_data:
+        # Update the resolved status in MongoDB
+        await threads_collection.update_one(
+            {"session_id": session_id},
+            {"$set": {"resolved": True}}
+        )
+        return {"message": "Session marked as resolved."}
+    return {"error": "Session not found."}
 
 if __name__ == "__main__":
     import uvicorn
