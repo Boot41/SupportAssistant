@@ -2,7 +2,7 @@ import asyncio
 import os
 import uuid
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -316,7 +316,14 @@ async def log_trace_event(session_id: str, event: Dict[str, Any]):
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    await manager.connect(websocket, session_id)
+    # Check if session already exists before creating a new one
+    if session_id not in manager.session_data:
+        await manager.connect(websocket, session_id)
+    else:
+        # If session exists, just update the websocket connection
+        await websocket.accept()
+        manager.active_connections[session_id] = websocket
+    
     try:
         while True:
             data = await websocket.receive_json()
@@ -330,6 +337,15 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "role": "user",
                     "content": user_message
                 })
+                
+                # Log user message to MongoDB
+                await log_trace_event(session_id, {
+                    "turn_id": session_data["turn_id"],
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "role": "user",
+                    "content": user_message
+                })
+                
                 session_data["turn_id"] += 1
                 continue
 
@@ -355,65 +371,67 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
             session_data["turn_id"] += 1
 
-            with trace("Support Session", group_id=session_id):
-                result = await Runner.run(current_agent, input_items, context=context)
+            # Only process AI response if human_override is not enabled
+            if not session_data.get("human_override"):
+                with trace("Support Session", group_id=session_id):
+                    result = await Runner.run(current_agent, input_items, context=context)
 
-                for item in result.new_items:
-                    agent_name = item.agent.name
+                    for item in result.new_items:
+                        agent_name = item.agent.name
 
-                    if isinstance(item, MessageOutputItem):
-                        message_text = ItemHelpers.text_message_output(item)
-                        event = {
-                            "turn_id": session_data["turn_id"],
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
-                            "role": "agent",
-                            "agent": agent_name,
-                            "content": message_text
-                        }
-                        await log_trace_event(session_id, event)
-                        await manager.send_to_operator(session_id, event)
-                        await manager.send_message(session_id, {
-                            "type": "message",
-                            "agent": agent_name,
-                            "content": message_text
-                        })
-
-                    elif isinstance(item, ToolCallOutputItem):
-                        await log_trace_event(session_id, {
-                            "turn_id": session_data["turn_id"],
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
-                            "role": "agent",
-                            "agent": agent_name,
-                            "tool_call": {
-                                "name": item.tool_name,
-                                "args": item.args,
-                                "output": item.output
+                        if isinstance(item, MessageOutputItem):
+                            message_text = ItemHelpers.text_message_output(item)
+                            event = {
+                                "turn_id": session_data["turn_id"],
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                                "role": "agent",
+                                "agent": agent_name,
+                                "content": message_text
                             }
-                        })
+                            await log_trace_event(session_id, event)
+                            await manager.send_to_operator(session_id, event)
+                            await manager.send_message(session_id, {
+                                "type": "message",
+                                "agent": agent_name,
+                                "content": message_text
+                            })
 
-                    elif isinstance(item, HandoffOutputItem):
-                        handoff_event = {
-                            "turn_id": session_data["turn_id"],
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
-                            "role": "agent",
-                            "agent": agent_name,
-                            "handoff": {
-                                "from": item.source_agent.name,
-                                "to": item.target_agent.name
-                            },
-                            "content": f"[Handoff] {item.source_agent.name} → {item.target_agent.name}"
-                        }
-                        await log_trace_event(session_id, handoff_event)
-                        await manager.send_to_operator(session_id, handoff_event)
-                        await manager.send_message(session_id, {
-                            "type": "handoff",
-                            "source": item.source_agent.name,
-                            "target": item.target_agent.name
-                        })
+                        elif isinstance(item, ToolCallOutputItem):
+                            await log_trace_event(session_id, {
+                                "turn_id": session_data["turn_id"],
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                                "role": "agent",
+                                "agent": agent_name,
+                                "tool_call": {
+                                    "name": item.tool_name,
+                                    "args": item.args,
+                                    "output": item.output
+                                }
+                            })
 
-                session_data["input_items"] = result.to_input_list()
-                session_data["current_agent"] = result.last_agent
-                session_data["turn_id"] += 1
+                        elif isinstance(item, HandoffOutputItem):
+                            handoff_event = {
+                                "turn_id": session_data["turn_id"],
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                                "role": "agent",
+                                "agent": agent_name,
+                                "handoff": {
+                                    "from": item.source_agent.name,
+                                    "to": item.target_agent.name
+                                },
+                                "content": f"[Handoff] {item.source_agent.name} → {item.target_agent.name}"
+                            }
+                            await log_trace_event(session_id, handoff_event)
+                            await manager.send_to_operator(session_id, handoff_event)
+                            await manager.send_message(session_id, {
+                                "type": "handoff",
+                                "source": item.source_agent.name,
+                                "target": item.target_agent.name
+                            })
+
+                    session_data["input_items"] = result.to_input_list()
+                    session_data["current_agent"] = result.last_agent
+                    session_data["turn_id"] += 1
 
     except WebSocketDisconnect:
         session_data = manager.session_data.get(session_id, {})
@@ -422,7 +440,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             {"$set": {"ended_at": datetime.utcnow().isoformat() + "Z"}},
             upsert=True
         )
-        manager.disconnect(session_id)
+        # Only remove the websocket connection, not the entire session data
+        if session_id in manager.active_connections:
+            manager.active_connections.pop(session_id, None)
 
 @app.websocket("/operator/{session_id}")
 async def operator_ws(websocket: WebSocket, session_id: str):
@@ -460,6 +480,21 @@ async def generate_session_id():
 async def override_session(session_id: str):
     if session_id in manager.session_data:
         manager.session_data[session_id]["human_override"] = True
+        
+        # Log the human override event
+        await log_trace_event(session_id, {
+            "turn_id": manager.session_data[session_id]["turn_id"],
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "role": "system",
+            "content": "Human support has taken over this conversation."
+        })
+        
+        # Notify the client that human support has taken over
+        await manager.send_message(session_id, {
+            "type": "system",
+            "content": "A human support agent has joined the conversation."
+        })
+        
         return {"message": "Human override enabled for this session."}
     return {"error": "Session not found."}
 
