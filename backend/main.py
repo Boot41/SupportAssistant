@@ -8,7 +8,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
+
+# Replaces old Mongo setup
+from db import db, threads_collection
 
 from agents import (
     Agent,
@@ -26,45 +28,27 @@ from agents import (
     WebSearchTool
 )
 
-# Load API key and Mongo URI
 load_dotenv()
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
-MONGODB_URI = os.getenv("MONGODB_URI")
 
 app = FastAPI()
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],  # Replace with specific origins in prod
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# MongoDB setup
-# MongoDB setup with connection log (sync ping to avoid 'await' issue)
-try:
-    mongo_client = AsyncIOMotorClient(MONGODB_URI)
-    db = mongo_client["SupportAssistant"]
-    threads_collection = db["Threads"]
-    
-    # Do a blocking test of the connection using PyMongo-style sync
-    mongo_client.get_io_loop().run_until_complete(mongo_client.admin.command("ping"))
-    print("✅ Connected to MongoDB and ping successful.")
-except Exception as e:
-    print(f"❌ Failed to connect to MongoDB: {e}")
-# ----------------------
 # CONTEXT
-# ----------------------
 class SupportContext(BaseModel):
     user_id: Optional[str] = None
     interview_id: Optional[str] = None
     transcript_found: Optional[bool] = None
 
-# ----------------------
 # TOOLS
-# ----------------------
 @function_tool(
     name_override="check_transcript_exists",
     description_override="Check whether user audio transcript was generated during the interview"
@@ -81,7 +65,6 @@ async def check_transcript_exists(
         context.context.transcript_found = True
         return "Transcript exists. Audio likely reached Kiran."
 
-# ----------------------
 # AGENTS
 # ----------------------
 
@@ -264,9 +247,10 @@ Agents available:
 technical_agent.handoffs.append(triage_agent)
 marketing_agent.handoffs.append(triage_agent)
 
-# ----------------------
+
+
+
 # WEBSOCKET CONNECTION MANAGER
-# ----------------------
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
