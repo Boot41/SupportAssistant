@@ -266,7 +266,8 @@ class ConnectionManager:
             "context": SupportContext(),
             "turn_id": 1,
             "human_override": False,
-            "started_at": datetime.utcnow().isoformat() + "Z"
+            "started_at": datetime.utcnow().isoformat() + "Z",
+            "user_id": None
         }
 
     async def connect_operator(self, websocket: WebSocket, session_id: str):
@@ -292,9 +293,24 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 async def log_trace_event(session_id: str, event: Dict[str, Any]):
+    # Add default flags to event if not present
+    if "flags" not in event:
+        event["flags"] = {
+            "ai_active": not manager.session_data[session_id].get("human_override", False),
+            "human_override": manager.session_data[session_id].get("human_override", False)
+        }
+    if "flagged" not in event:
+        event["flagged"] = False
     await threads_collection.update_one(
         {"session_id": session_id},
-        {"$push": {"conversation": event}},
+        {
+            "$push": {"conversation": event},
+            "$setOnInsert": {
+                "session_id": session_id,
+                "user_id": manager.session_data[session_id].get("user_id"),
+                "started_at": manager.session_data[session_id].get("started_at")
+            }
+        },
         upsert=True
     )
 
@@ -310,7 +326,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             if session_data.get("human_override"):
                 await manager.send_to_operator(session_id, {
                     "turn_id": session_data["turn_id"],
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "role": "user",
                     "content": user_message
                 })
@@ -329,12 +345,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "role": "user",
                 "content": user_message
             })
+
             await manager.send_to_operator(session_id, {
                 "turn_id": session_data["turn_id"],
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "role": "user",
                 "content": user_message
             })
+
             session_data["turn_id"] += 1
 
             with trace("Support Session", group_id=session_id):
@@ -444,6 +462,7 @@ async def override_session(session_id: str):
         manager.session_data[session_id]["human_override"] = True
         return {"message": "Human override enabled for this session."}
     return {"error": "Session not found."}
+
 
 if __name__ == "__main__":
     import uvicorn
