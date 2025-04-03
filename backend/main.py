@@ -405,8 +405,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                                 "role": "agent",
                                 "agent": agent_name,
                                 "tool_call": {
-                                    "name": item.tool_name,
-                                    "args": item.args,
+                                    "name": "check_transcript_exists",
+                                    "args": {},
                                     "output": item.output
                                 }
                             })
