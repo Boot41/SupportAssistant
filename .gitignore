@@ -1,0 +1,19 @@
+# General
+.env
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Python
+*.env
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# React / Frontend
+build/
+frontend/package-lock.json
+frontend/package.json

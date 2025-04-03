@@ -511,6 +511,76 @@ async def resolve_session(session_id: str):
         return {"message": "Session marked as resolved."}
     return {"error": "Session not found."}
 
+@app.get("/sessions")
+async def get_sessions():
+    """Get all sessions from the database."""
+    sessions = await threads_collection.find(
+        {},
+        {"session_id": 1, "started_at": 1, "ended_at": 1, "resolved": 1, "user_id": 1}
+    ).to_list(length=100)
+    
+    # Convert ObjectId to string for JSON serialization
+    for session in sessions:
+        session["_id"] = str(session["_id"])
+    
+    return sessions
+
+@app.get("/sessions/{session_id}")
+async def get_session(session_id: str):
+    """Get a specific session with its conversation history."""
+    session = await threads_collection.find_one({"session_id": session_id})
+    
+    if not session:
+        return {"error": "Session not found"}
+    
+    # Convert ObjectId to string for JSON serialization
+    session["_id"] = str(session["_id"])
+    
+    return session
+
+@app.post("/sessions/{session_id}/flag/{turn_id}")
+async def toggle_flag(session_id: str, turn_id: int):
+    """Toggle the flagged status for a specific message in a conversation."""
+    session = await threads_collection.find_one({"session_id": session_id})
+    
+    if not session:
+        return {"error": "Session not found"}
+    
+    # Find the message with the given turn_id
+    for i, message in enumerate(session["conversation"]):
+        if message.get("turn_id") == turn_id:
+            # Toggle the flagged status
+            new_flagged_status = not message.get("flagged", False)
+            
+            # Update the message in the database
+            await threads_collection.update_one(
+                {"session_id": session_id, "conversation.turn_id": turn_id},
+                {"$set": {f"conversation.{i}.flagged": new_flagged_status}}
+            )
+            
+            return {"message": f"Message flagged status toggled to {new_flagged_status}"}
+    
+    return {"error": "Message not found"}
+
+@app.post("/sessions/{session_id}/toggle-resolve")
+async def toggle_resolve(session_id: str):
+    """Toggle the resolved status for a session."""
+    session = await threads_collection.find_one({"session_id": session_id})
+    
+    if not session:
+        return {"error": "Session not found"}
+    
+    # Toggle the resolved status
+    new_resolved_status = not session.get("resolved", False)
+    
+    # Update the session in the database
+    await threads_collection.update_one(
+        {"session_id": session_id},
+        {"$set": {"resolved": new_resolved_status}}
+    )
+    
+    return {"message": f"Session resolved status toggled to {new_resolved_status}"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
