@@ -82,7 +82,7 @@ function OperatorDashboard() {
           <table>
             <thead>
               <tr>
-                <th>Session ID</th>
+                <th>Ticket ID</th>
                 <th>Started</th>
                 <th>Ended</th>
                 <th>Status</th>
