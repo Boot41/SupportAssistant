@@ -13,10 +13,15 @@ from datetime import datetime, timezone
 load_dotenv()
 
 # Get PostgreSQL connection string from environment variables
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://username:password@localhost/supportassistant")
+DATABASE_URL = os.getenv("DATABASE_URL").replace("postgresql://", "postgresql+asyncpg://")
 
-# Create async engine
-engine = create_async_engine(DATABASE_URL)
+# Create async engine with SSL parameters
+engine = create_async_engine(
+    DATABASE_URL, 
+    connect_args={
+        "ssl": True,  # Enable SSL
+    }
+)
 
 # Create a base class for declarative models
 Base = declarative_base()
@@ -32,6 +37,7 @@ class Operator(Base):
     password = Column(String(255), nullable=False)
     image = Column(String(255))
     department = Column(String(255), default="Recruit41")
+    active = Column(Boolean, default=False)
     
     tickets = relationship("Ticket", back_populates="operator")
 
