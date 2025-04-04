@@ -102,9 +102,9 @@ function OperatorDashboard() {
                   </td>
                   <td>
                     <div className="action-buttons">
-                      <Link to={`/operator/chat/${session.session_id}`} className="action-button chat">
+                      {/* <Link to={`/operator/chat/${session.session_id}`} className="action-button chat">
                         Chat
-                      </Link>
+                      </Link> */}
                       <Link to={`/operator/view/${session.session_id}`} className="action-button view">
                         View
                       </Link>
