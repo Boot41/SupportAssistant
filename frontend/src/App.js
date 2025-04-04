@@ -6,6 +6,7 @@ import ChatInput from './components/ChatInput';
 import OperatorDashboard from './pages/OperatorDashboard';
 import SessionView from './pages/SessionView';
 import OperatorChat from './pages/OperatorChat';
+import SignIn from './components/SignIn';
 
 function UserChat() {
   const [messages, setMessages] = useState([]);
@@ -142,7 +143,7 @@ function UserChat() {
     <div className="app">
       <header className="app-header">
         <h1>Support Assistant</h1>
-        <Link to="/operator" className="operator-link">Operator Dashboard</Link>
+        <Link to="/signin" className="operator-link">Operator Dashboard</Link>
       </header>
       
       <div className="chat-container">
@@ -188,6 +189,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<UserChat />} />
+        <Route path="/signin" element={<SignIn />} />
         <Route path="/operator" element={<OperatorDashboard />} />
         <Route path="/operator/view/:sessionId" element={<SessionView />} />
         <Route path="/operator/chat/:sessionId" element={<OperatorChat />} />
