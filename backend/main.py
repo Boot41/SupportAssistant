@@ -9,8 +9,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# Replaces old Mongo setup
-from db import db, threads_collection
+# Replace MongoDB imports with PostgreSQL/SQLAlchemy imports
+from db import (
+    insert_conversation_event, 
+    update_ticket_end_time, 
+    get_all_tickets, 
+    get_ticket_with_conversations, 
+    toggle_conversation_flag, 
+    toggle_ticket_resolved
+)
 
 from agents import (
     Agent,
@@ -302,19 +309,9 @@ async def log_trace_event(session_id: str, event: Dict[str, Any]):
         }
     if "flagged" not in event:
         event["flagged"] = False
-    await threads_collection.update_one(
-        {"session_id": session_id},
-        {
-            "$push": {"conversation": event},
-            "$setOnInsert": {
-                "session_id": session_id,
-                "user_id": manager.session_data[session_id].get("user_id"),
-                "started_at": manager.session_data[session_id].get("started_at"),
-                "resolved": False
-            }
-        },
-        upsert=True
-    )
+    
+    # Use PostgreSQL insert function instead of MongoDB
+    await insert_conversation_event(session_id, event)
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -340,7 +337,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "content": user_message
                 })
                 
-                # Log user message to MongoDB
+                # Log user message to PostgreSQL
                 await log_trace_event(session_id, {
                     "turn_id": session_data["turn_id"],
                     "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -437,11 +434,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
     except WebSocketDisconnect:
         session_data = manager.session_data.get(session_id, {})
-        await threads_collection.update_one(
-            {"session_id": session_id},
-            {"$set": {"ended_at": datetime.utcnow().isoformat() + "Z"}},
-            upsert=True
-        )
+        # Update ticket end time in PostgreSQL
+        await update_ticket_end_time(session_id)
         # Only remove the websocket connection, not the entire session data
         if session_id in manager.active_connections:
             manager.active_connections.pop(session_id, None)
@@ -503,83 +497,46 @@ async def override_session(session_id: str):
 @app.post("/resolve/{session_id}")
 async def resolve_session(session_id: str):
     if session_id in manager.session_data:
-        # Update the resolved status in MongoDB
-        await threads_collection.update_one(
-            {"session_id": session_id},
-            {"$set": {"resolved": True}}
-        )
+        # Update the resolved status in PostgreSQL
+        await toggle_ticket_resolved(session_id)
         return {"message": "Session marked as resolved."}
     return {"error": "Session not found."}
 
 @app.get("/sessions")
 async def get_sessions():
     """Get all sessions from the database."""
-    sessions = await threads_collection.find(
-        {},
-        {"session_id": 1, "started_at": 1, "ended_at": 1, "resolved": 1, "user_id": 1}
-    ).to_list(length=100)
-    
-    # Convert ObjectId to string for JSON serialization
-    for session in sessions:
-        session["_id"] = str(session["_id"])
-    
+    sessions = await get_all_tickets()
     return sessions
 
 @app.get("/sessions/{session_id}")
 async def get_session(session_id: str):
     """Get a specific session with its conversation history."""
-    session = await threads_collection.find_one({"session_id": session_id})
+    session = await get_ticket_with_conversations(session_id)
     
     if not session:
         return {"error": "Session not found"}
-    
-    # Convert ObjectId to string for JSON serialization
-    session["_id"] = str(session["_id"])
     
     return session
 
 @app.post("/sessions/{session_id}/flag/{turn_id}")
 async def toggle_flag(session_id: str, turn_id: int):
     """Toggle the flagged status for a specific message in a conversation."""
-    session = await threads_collection.find_one({"session_id": session_id})
+    new_flagged_status = await toggle_conversation_flag(session_id, turn_id)
     
-    if not session:
-        return {"error": "Session not found"}
-    
-    # Find the message with the given turn_id
-    for i, message in enumerate(session["conversation"]):
-        if message.get("turn_id") == turn_id:
-            # Toggle the flagged status
-            new_flagged_status = not message.get("flagged", False)
-            
-            # Update the message in the database
-            await threads_collection.update_one(
-                {"session_id": session_id, "conversation.turn_id": turn_id},
-                {"$set": {f"conversation.{i}.flagged": new_flagged_status}}
-            )
-            
-            return {"message": f"Message flagged status toggled to {new_flagged_status}"}
+    if new_flagged_status is not None:
+        return {"message": f"Message flagged status toggled to {new_flagged_status}"}
     
     return {"error": "Message not found"}
 
 @app.post("/sessions/{session_id}/toggle-resolve")
 async def toggle_resolve(session_id: str):
     """Toggle the resolved status for a session."""
-    session = await threads_collection.find_one({"session_id": session_id})
+    new_resolved_status = await toggle_ticket_resolved(session_id)
     
-    if not session:
-        return {"error": "Session not found"}
+    if new_resolved_status is not None:
+        return {"message": f"Session resolved status toggled to {new_resolved_status}"}
     
-    # Toggle the resolved status
-    new_resolved_status = not session.get("resolved", False)
-    
-    # Update the session in the database
-    await threads_collection.update_one(
-        {"session_id": session_id},
-        {"$set": {"resolved": new_resolved_status}}
-    )
-    
-    return {"message": f"Session resolved status toggled to {new_resolved_status}"}
+    return {"error": "Session not found"}
 
 if __name__ == "__main__":
     import uvicorn
