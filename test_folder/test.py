@@ -57,6 +57,15 @@ async def check_transcript_exists(
         context.context.transcript_found = True
         return "Transcript exists. Audio likely reached Kiran."
 
+# Handing off to the Human Support Agent if unresolved:
+@function_tool(
+    name_override="human_support",
+    description_override="Notify Human Support Agent that the issue requires human intervention"
+)
+async def human_support() -> str:
+    return "Human Support will be notified shortly. Please hold on."
+
+
 # ----------------------
 # AGENTS
 # ----------------------
@@ -232,20 +241,13 @@ When the issue is resolved, thank the user and check if they are satisfied. If n
     handoffs=[
         handoff(technical_agent),
         handoff(marketing_agent),
-    ]
+    ],
+    tools=[human_support]
 )
 
 # Add re-routing support
 technical_agent.handoffs.append(triage_agent)
 marketing_agent.handoffs.append(triage_agent)
-
-# Handing off to the Human Support Agent if unresolved:
-@function_tool(
-    name_override="human_support",
-    description_override="Notify Human Support Agent that the issue requires human intervention"
-)
-async def notify_human_support(context: RunContextWrapper[SupportContext]) -> str:
-    return "Human Support will be notified shortly. Please hold on."
 
 
 # Handle the case where issue is resolved
