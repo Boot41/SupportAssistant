@@ -28,4 +28,3 @@ App/package-lock.json
 App/.vercel
 App/*.tsbuildinfo
 App/next-env.d.ts
-App/app/globals.css
