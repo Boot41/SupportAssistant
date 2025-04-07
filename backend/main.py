@@ -55,7 +55,9 @@ class SupportContext(BaseModel):
     interview_id: Optional[str] = None
     transcript_found: Optional[bool] = None
 
+# ----------------------
 # TOOLS
+# ----------------------
 @function_tool(
     name_override="check_transcript_exists",
     description_override="Check whether user audio transcript was generated during the interview"
@@ -65,16 +67,29 @@ async def check_transcript_exists(
     interview_id: str
 ) -> str:
     context.context.interview_id = interview_id
-    if interview_id.endswith("5"):
+
+    # MOCK LOGIC – in reality, you'd query your backend
+    if interview_id.endswith("5"):  # pretend IDs ending in 5 failed
         context.context.transcript_found = False
         return "Transcript not found. Kiran likely did not hear the user."
     else:
         context.context.transcript_found = True
         return "Transcript exists. Audio likely reached Kiran."
 
+# Handing off to the Human Support Agent if unresolved:
+@function_tool(
+    name_override="human_support",
+    description_override="Notify Human Support Agent that the issue requires human intervention"
+)
+async def human_support() -> str:
+    return "Human Support will be notified shortly. Please hold on."
+
+
+# ----------------------
 # AGENTS
 # ----------------------
 
+# Define the Technical Support Agent (the agent handling the issue)
 technical_agent = Agent[SupportContext](
     name="TechnicalSupportAgent",
     handoff_description="Handles mic/audio issues, silent AI responses, and checks if user audio is working.",
@@ -228,11 +243,7 @@ Recruit41 is trusted by startups, enterprise firms, and recruitment agencies. A 
 """,
     tools=[WebSearchTool()]
 )
-
-
-# ----------------------
-# TRIAGE AGENT
-# ----------------------
+# Define the Triage Agent (decides whether to escalate or resolve the issue)
 triage_agent = Agent[SupportContext](
     name="TriageAgent",
     instructions="""
@@ -243,16 +254,30 @@ Respond only with the required handoff. Don't answer questions yourself.
 Agents available:
 - TechnicalSupportAgent: Handles audio, mic, and AI not responding issues.
 - MarketingAgent: Handles questions about pricing, demos, and campaigns.
+
+When the issue is resolved, thank the user and check if they are satisfied. If not, inform them that we will escalate the issue to a human support agent.
 """,
     handoffs=[
         handoff(technical_agent),
         handoff(marketing_agent),
-    ]
+    ],
+    tools=[human_support]
 )
 
 # Add re-routing support
 technical_agent.handoffs.append(triage_agent)
 marketing_agent.handoffs.append(triage_agent)
+
+
+
+# # Handle the case where issue is resolved
+# async def handle_resolved_issue(session_id: str, resolved: bool):
+#     if resolved:
+#         # Return to Triage agent for confirmation
+#         await triage_agent.handoffs[0].run(context=session_id)
+#     else:
+#         await triage_agent.handoffs[1].run(context=session_id)  # Human support if unresolved
+
 
 
 
