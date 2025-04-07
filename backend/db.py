@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 load_dotenv()
 
 # Get PostgreSQL connection string from environment variables
-DATABASE_URL = os.getenv("DATABASE_URL").replace("postgresql://", "postgresql+asyncpg://")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Create async engine with SSL parameters
 engine = create_async_engine(
