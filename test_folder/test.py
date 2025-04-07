@@ -282,7 +282,7 @@ async def main():
                     if isinstance(item, MessageOutputItem):
                         print(f"{name}: {ItemHelpers.text_message_output(item)}")
                     elif isinstance(item, ToolCallItem):
-                        print(f"{name}: [Tool called]")
+                        print(f"{name}: {item.raw_item.name}")
                     elif isinstance(item, ToolCallOutputItem):
                         print(f"{name}: [Tool Output] {item.output}")
                     elif isinstance(item, HandoffOutputItem):
