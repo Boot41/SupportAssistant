@@ -18,4 +18,14 @@ build/
 frontend/package-lock.json
 frontend/package.json
 
-App
+App/node_modules
+App/.next
+App/out
+App/build
+App/package-lock.json
+App/package.json
+
+App/.vercel
+App/*.tsbuildinfo
+App/next-env.d.ts
+App/app/globals.css
