@@ -23,7 +23,7 @@ App/.next
 App/out
 App/build
 App/package-lock.json
-App/package.json
+
 
 App/.vercel
 App/*.tsbuildinfo
