@@ -17,3 +17,5 @@ yarn-error.log
 build/
 frontend/package-lock.json
 frontend/package.json
+
+App
