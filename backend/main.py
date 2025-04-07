@@ -420,19 +420,27 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                                 "content": message_text
                             })
 
-                        elif isinstance(item, ToolCallOutputItem):
+                        elif isinstance(item, ToolCallItem):
+                        # Dynamically log the tool's name and its arguments/output
+                            tool_name = item.raw_item.name
+                            print(tool_name)
+                            # Now, we need to get the arguments used in the tool call. 
+                            # If it's a dictionary or has attributes, you can extract those like this:
+                            tool_args = getattr(item.raw_item, "args", str(item.raw_item))  # Extract args or handle complex objects
+    
+                            # Log the event with tool name, args, and output
                             await log_trace_event(session_id, {
                                 "turn_id": session_data["turn_id"],
                                 "timestamp": datetime.utcnow().isoformat() + "Z",
                                 "role": "agent",
                                 "agent": agent_name,
                                 "tool_call": {
-                                    "name": "check_transcript_exists",
-                                    "args": {},
-                                    "output": item.output
+                                    "name": tool_name,
+                                    "args": tool_args,
+                                    # "output": item.output
                                 }
                             })
-
+    
                         elif isinstance(item, HandoffOutputItem):
                             handoff_event = {
                                 "turn_id": session_data["turn_id"],
