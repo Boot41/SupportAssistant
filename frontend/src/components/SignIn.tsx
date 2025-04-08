@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { Button } from "../ui/button"
@@ -5,9 +6,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { ShieldCheck, Loader2 } from "lucide-react"
 import { cn } from "../lib/utils"
 import { useGoogleLogin } from '@react-oauth/google'
+import axios from 'axios'
 
 export default function SignIn() {
-  const navigate = useNavigate()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [mounted, setMounted] = useState(false)
@@ -18,24 +19,25 @@ export default function SignIn() {
   }, [])
 
   const login = useGoogleLogin({
-    scope: 'openid profile email',
+    scope: 'openid profile email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+    flow: 'auth-code',
+    // clientId: '274055029862-30ju5vqba01in57ftvv1i0n6mi6loo7d.apps.googleusercontent.com',
     onSuccess: async (codeResponse) => {
       try {
-        // In a real app, you would send the code to your backend
-        // For now, we'll simulate a successful login
-        await new Promise(resolve => setTimeout(resolve, 1500))
-        navigate("/operator")
-        setIsLoading(false)
-      } catch (error) {
-        setError("Failed to authenticate with Google")
-        setIsLoading(false)
+        const res = await axios.post('http://localhost:8000/auth', {
+          code: codeResponse.code,
+          redirect_uri: 'http://localhost:3000'
+        });
+        if(res.data.success) {
+          console.log(res.data)
+          window.location.href = '/operator';
+        }
+      } catch (err) {
+        console.error('Auth failed', err);
       }
     },
-    onError: (error) => {
-      setError("Failed to authenticate with Google")
-      setIsLoading(false)
-    }
-  })
+    onError: (err) => console.error(err),
+  });
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true)
