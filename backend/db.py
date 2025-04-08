@@ -93,6 +93,22 @@ class Conversation(Base):
     
     ticket = relationship("Ticket", back_populates="conversations")
 
+# Create session factory
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    class_=AsyncSession
+)
+
+# Dependency to get database session
+async def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        await db.close()
+
 # Create async session factory
 async_session = sessionmaker(
     engine, expire_on_commit=False, class_=AsyncSession

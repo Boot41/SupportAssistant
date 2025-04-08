@@ -3,11 +3,15 @@ import os
 import uuid
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import httpx
+from fastapi import HTTPException
+from fastapi.logger import logger
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 # Replace MongoDB imports with PostgreSQL/SQLAlchemy imports
 from db import (
@@ -16,9 +20,10 @@ from db import (
     get_all_tickets, 
     get_ticket_with_conversations, 
     toggle_conversation_flag, 
-    toggle_ticket_resolved
+    toggle_ticket_resolved,
+    get_db
 )
-
+from db import OperatorSG
 from agents import (
     Agent,
     Runner,
@@ -37,6 +42,10 @@ from agents import (
 
 load_dotenv()
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo"
 
 app = FastAPI()
 
@@ -570,6 +579,93 @@ async def toggle_resolve(session_id: str):
         return {"message": f"Session resolved status toggled to {new_resolved_status}"}
     
     return {"error": "Session not found"}
+
+@app.post("/auth")
+async def auth_callback(payload: dict, db: AsyncSession = Depends(get_db)):
+    code = payload.get("code")
+    redirect_uri = payload.get("redirect_uri")
+    logger.info(f"Received /auth request with code: {code}, redirect_uri: {redirect_uri}")
+    if not code or not redirect_uri:
+        raise HTTPException(status_code=400, detail="Missing authorization code or redirect URI")
+
+    async with httpx.AsyncClient() as client:
+        # Step 1: Exchange authorization code for tokens
+        logger.info(f"Exchanging code for token with redirect_uri: {redirect_uri}")
+        
+        token_data = {
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        }
+        logger.info(f"Token request data: {token_data}")
+        
+        token_response = await client.post(
+            GOOGLE_TOKEN_URL, 
+            data=token_data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"}
+        )
+        
+        logger.info(f"Token response status: {token_response.status_code}")
+        if token_response.status_code != 200:
+            error_detail = token_response.text
+            logger.error(f"Token exchange failed: {error_detail}")
+            raise HTTPException(status_code=401, detail=f"Failed to exchange code for token: {error_detail}")
+        
+        tokens = token_response.json()
+        access_token = tokens.get("access_token")
+        refresh_token = tokens.get("refresh_token")
+
+        if not access_token:
+            raise HTTPException(status_code=401, detail="No access token returned")
+
+        # Step 2: Fetch user info
+        user_response = await client.get(
+            GOOGLE_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+
+        if user_response.status_code != 200:
+            raise HTTPException(status_code=401, detail="Failed to fetch user info")
+
+        user_info = user_response.json()
+        email = user_info.get("email")
+        name = user_info.get("name")
+        picture = user_info.get("picture")
+        google_id = user_info.get("id")
+
+        if not all([email, name, google_id]):
+            raise HTTPException(status_code=400, detail="Incomplete user info from Google")
+
+        # Step 3: Create or update user in DB
+        result = await db.execute(select(OperatorSG).filter_by(email=email))
+        operator = result.scalar_one_or_none()
+
+        if not operator:
+            operator = OperatorSG(
+                email=email,
+                full_name=name,
+                image=picture,
+                active_date=datetime.utcnow(),
+                google_id=google_id,
+                refresh_token=refresh_token
+            )
+            db.add(operator)
+        else:
+            # Update refresh_token if user already exists
+            operator.refresh_token = refresh_token
+
+        await db.commit()
+
+        return {
+            "message": "Login successful",
+            "email": email,
+            "name": name,
+            "image": picture,
+            "google_id": google_id,
+            "success": True
+        }
 
 if __name__ == "__main__":
     import uvicorn
