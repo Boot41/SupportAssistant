@@ -3,9 +3,9 @@ import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import './App.css';
 import ChatMessage from './components/ChatMessage.jsx';
 import ChatInput from './components/ChatInput.jsx';
-import OperatorDashboard from './pages/OperatorDashboard.jsx';
-import SessionView from './pages/SessionView.jsx';
-import OperatorChat from './pages/OperatorChat.jsx';
+import OperatorDashboard from './pages/OperatorDashboard.tsx';
+import SessionView from './pages/SessionView.tsx';
+import OperatorChat from './pages/OperatorChat.tsx';
 import SignIn from './components/SignIn.tsx';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
