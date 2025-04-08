@@ -41,6 +41,17 @@ class Operator(Base):
     
     tickets = relationship("Ticket", back_populates="operator")
 
+class OperatorSG(Base):
+    __tablename__ = "operatorsg"
+    
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), unique=True, nullable=False)
+    full_name = Column(String(255), nullable=False)
+    image = Column(String(255))
+    active_date = Column(DateTime, nullable=True)  # Using DateTime instead of DATE for better SQLAlchemy compatibility
+    google_id = Column(String(255), unique=True, nullable=False)
+    refresh_token = Column(Text, nullable=True)
+
 class User(Base):
     __tablename__ = "users"
     
