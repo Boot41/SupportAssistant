@@ -1,21 +1,33 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import './App.css';
-import ChatMessage from './components/ChatMessage';
-import ChatInput from './components/ChatInput';
-import OperatorDashboard from './pages/OperatorDashboard';
-import SessionView from './pages/SessionView';
-import OperatorChat from './pages/OperatorChat';
-import SignIn from './components/SignIn';
+import ChatMessage from './components/ChatMessage.jsx';
+import ChatInput from './components/ChatInput.jsx';
+import OperatorDashboard from './pages/OperatorDashboard.jsx';
+import SessionView from './pages/SessionView.jsx';
+import OperatorChat from './pages/OperatorChat.jsx';
+import SignIn from './components/SignIn.tsx';
+import { GoogleOAuthProvider } from '@react-oauth/google';
+
+// Define interfaces for better type safety
+interface Message {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  agent?: string;
+}
+
+interface SessionData {
+  session_id: string;
+}
 
 function UserChat() {
-  const [messages, setMessages] = useState([]);
-  const [sessionId, setSessionId] = useState(null);
-  const [connected, setConnected] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [sessionInitialized, setSessionInitialized] = useState(false);
-  const webSocketRef = useRef(null);
-  const messagesEndRef = useRef(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [connected, setConnected] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [sessionInitialized, setSessionInitialized] = useState<boolean>(false);
+  const webSocketRef = useRef<WebSocket | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Scroll to bottom of chat
   const scrollToBottom = () => {
@@ -30,9 +42,8 @@ function UserChat() {
   useEffect(() => {
     const getSessionId = async () => {
       try {
-        // Get session ID from backend
         const response = await fetch('http://localhost:8000/generate-session-id');
-        const data = await response.json();
+        const data: SessionData = await response.json();
         setSessionId(data.session_id);
       } catch (error) {
         console.error('Error getting session ID:', error);
@@ -41,7 +52,6 @@ function UserChat() {
     
     getSessionId();
     
-    // Cleanup function
     return () => {
       if (webSocketRef.current) {
         webSocketRef.current.close();
@@ -50,12 +60,11 @@ function UserChat() {
   }, []);
 
   // Initialize WebSocket connection only when user sends first message
-  const initializeWebSocket = (messageToSend) => {
+  const initializeWebSocket = (messageToSend: string) => {
     if (sessionInitialized || !sessionId) return;
     
     setLoading(true);
     
-    // Connect to WebSocket with the session ID
     const ws = new WebSocket(`ws://localhost:8000/ws/${sessionId}`);
     
     ws.onopen = () => {
@@ -63,11 +72,8 @@ function UserChat() {
       setConnected(true);
       setSessionInitialized(true);
       
-      // Send the initial message once connected
       if (messageToSend) {
-        ws.send(JSON.stringify({
-          message: messageToSend
-        }));
+        ws.send(JSON.stringify({ message: messageToSend }));
       }
     };
     
@@ -82,7 +88,6 @@ function UserChat() {
         }]);
       } else if (data.type === 'handoff') {
         console.log(`Handoff from ${data.source} to ${data.target}`);
-        // You could add a system message here if you want to show handoffs in the UI
       } else if (data.type === 'system') {
         setMessages(prev => [...prev, {
           role: 'system',
@@ -107,14 +112,12 @@ function UserChat() {
     webSocketRef.current = ws;
   };
 
-  // Send message to WebSocket
-  const sendMessage = (message) => {
+  const sendMessage = (message: string) => {
     if (!sessionId) {
       console.error('No session ID available');
       return;
     }
     
-    // Add user message to chat
     setMessages(prev => [...prev, {
       role: 'user',
       content: message
@@ -122,17 +125,13 @@ function UserChat() {
     
     setLoading(true);
     
-    // Initialize WebSocket if not already done
     if (!sessionInitialized) {
       initializeWebSocket(message);
       return;
     }
     
-    // If already connected, send message directly
     if (connected && webSocketRef.current) {
-      webSocketRef.current.send(JSON.stringify({
-        message: message
-      }));
+      webSocketRef.current.send(JSON.stringify({ message }));
     } else {
       console.error('WebSocket not connected');
       setLoading(false);
@@ -186,15 +185,17 @@ function UserChat() {
 
 function App() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<UserChat />} />
-        <Route path="/signin" element={<SignIn />} />
-        <Route path="/operator" element={<OperatorDashboard />} />
-        <Route path="/operator/view/:sessionId" element={<SessionView />} />
-        <Route path="/operator/chat/:sessionId" element={<OperatorChat />} />
-      </Routes>
-    </Router>
+    <GoogleOAuthProvider clientId="274055029862-30ju5vqba01in57ftvv1i0n6mi6loo7d.apps.googleusercontent.com">
+      <Router>
+        <Routes>
+          <Route path="/" element={<UserChat />} />
+          <Route path="/signin" element={<SignIn />} />
+          <Route path="/operator" element={<OperatorDashboard />} />
+          <Route path="/operator/view/:sessionId" element={<SessionView />} />
+          <Route path="/operator/chat/:sessionId" element={<OperatorChat />} />
+        </Routes>
+      </Router>
+    </GoogleOAuthProvider>
   );
 }
 
