@@ -21,7 +21,8 @@ from db import (
     get_ticket_with_conversations, 
     toggle_conversation_flag, 
     toggle_ticket_resolved,
-    get_db
+    get_db,
+    SessionLocal
 )
 from db import OperatorSG
 from agents import (
@@ -86,15 +87,35 @@ async def check_transcript_exists(
         return "Transcript exists. Audio likely reached Kiran."
 
 # Handing off to the Human Support Agent if unresolved:
-import requests
 import json
+from datetime import date
+import httpx  # Using httpx for async HTTP requests
 
-# Google Chat webhook URL
 WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAQAys6OFTM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=CCLGglbxyz8fMv0jdHhevoAp4VswRaakxnc9w-qRzFU"
 
-def send_google_chat_notification(message: str):
-    headers = {"Content-Type": "application/json"}
-    data = {
+async def get_on_call_operator(db: AsyncSession):
+    today = date.today()
+
+    # Try to get operator for today
+    result = await db.execute(
+        select(OperatorSG)
+        .where(OperatorSG.active_date == today)
+        .order_by(OperatorSG.active_date.asc())
+    )
+    operator = result.scalar_one_or_none()
+    if operator:
+        return operator
+
+    # Fallback to the most recent past operator
+    result = await db.execute(
+        select(OperatorSG)
+        .where(OperatorSG.active_date <= today)
+        .order_by(OperatorSG.active_date.desc())
+    )
+    return result.scalar_one_or_none()
+
+def format_chat_message(operator):
+    return {
         "cards": [
             {
                 "header": {
@@ -108,7 +129,12 @@ def send_google_chat_notification(message: str):
                         "widgets": [
                             {
                                 "textParagraph": {
-                                    "text": f"<b>Message:</b> {message}"
+                                    "text": f"<b>{operator.full_name}</b> is on call today. <br>Please respond to the support request."
+                                }
+                            },
+                            {
+                                "textParagraph": {
+                                    "text": f"<i>Email:</i> {operator.email}"
                                 }
                             },
                             {
@@ -132,20 +158,230 @@ def send_google_chat_notification(message: str):
         ]
     }
 
-    response = requests.post(WEBHOOK_URL, headers=headers, data=json.dumps(data))
-
-    if response.status_code == 200:
-        print("✅ Notification sent successfully.")
-    else:
-        print(f"❌ Failed to send notification. Status code: {response.status_code}")
+async def _handle_roster_notification(db: AsyncSession):
+    print("🔍 Starting notification process...")
+    try:
+        # Debug: Check if we have any operators in the database
+        result = await db.execute(select(OperatorSG))
+        all_operators = result.scalars().all()
+        print(f"📊 Found {len(all_operators)} total operators in database")
+        
+        operator = await get_on_call_operator(db)
+        if not operator:
+            print("⚠️ No on-call operator found for today or past dates")
+            # Fallback to a default message when no operator is found
+            payload = {
+                "text": "🚨 **Support Request Alert**: A user needs assistance, but no on-call operator was found in the system."
+            }
+            headers = {"Content-Type": "application/json"}
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(WEBHOOK_URL, headers=headers, json=payload)
+                print(f"Webhook response: {response.status_code} - {response.text}")
+                return "Support team has been notified, but no specific operator is on call."
+            except Exception as e:
+                print(f"🔥 Exception sending default notification: {e}")
+                return f"Failed to notify support team: {e}"
+        
+        print(f"👤 Found on-call operator: {operator.full_name} ({operator.email})")
+        # If we have an operator, format the message with their details
+        payload = format_chat_message(operator)
+        headers = {"Content-Type": "application/json"}
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(WEBHOOK_URL, headers=headers, json=payload)
+        print(f"Webhook response: {response.status_code} - {response.text}")
+        if response.status_code == 200:
+            print("✅ Roster alert sent successfully.")
+            return f"Operator {operator.full_name} has been notified."
+        else:
+            print(f"❌ Failed webhook response: {response.status_code}")
+            return f"Failed to notify operator. Webhook error: {response.status_code}"
+    except Exception as e:
+        print(f"🔥 Exception occurred in notification process: {e}")
+        return f"Exception while processing notification: {e}"
 
 @function_tool(
     name_override="human_support",
-    description_override="Notify Human Support Agent that the issue requires human intervention"
+    description_override="Notify the current on-call human support agent via Google Chat"
 )
 async def human_support() -> str:
-    send_google_chat_notification("🔔 Human support intervention required for a user query")
-    return "Human Support will be notified shortly. Please hold on."
+    print("🔔 Human support function called")
+    
+    # Try to fetch operators from database first
+    try:
+        # Create a database session directly using SessionLocal
+        db = SessionLocal()
+        try:
+            print("Querying database for on-call operators...")
+            
+            # Get today's date
+            today = date.today()
+            print(f"Today's date: {today}")
+            
+            # Try to get all operators first to debug
+            result = await db.execute(select(OperatorSG))
+            all_operators = result.scalars().all()
+            print(f"Found {len(all_operators)} total operators in database")
+            
+            # Try to get operator for today
+            result = await db.execute(
+                select(OperatorSG)
+                .where(OperatorSG.active_date == today)
+                .order_by(OperatorSG.active_date.asc())
+            )
+            operator = result.scalar_one_or_none()
+            
+            if not operator and all_operators:
+                # Fallback to the most recent past operator
+                print("No operator for today, trying to find most recent")
+                result = await db.execute(
+                    select(OperatorSG)
+                    .where(OperatorSG.active_date <= today)
+                    .order_by(OperatorSG.active_date.desc())
+                )
+                operator = result.scalar_one_or_none()
+            
+            # Prepare notification based on operator availability
+            if operator:
+                print(f"Found operator: {operator.full_name} ({operator.email})")
+                
+                # Create a formatted card with operator details
+                email_username = operator.email.split('@')[0]
+                payload = {
+                    "cards": [
+                        {
+                            "header": {
+                                "title": "Support Request Alert",
+                                "subtitle": f"On-call: {operator.full_name}",
+                                "imageUrl": "https://www.gstatic.com/images/icons/material/system/2x/support_agent_black_48dp.png",
+                                "imageStyle": "AVATAR"
+                            },
+                            "sections": [
+                                {
+                                    "widgets": [
+                                        {
+                                            "textParagraph": {
+                                                "text": f"<users/{email_username}> A user is requesting assistance and you are the on-call operator today."
+                                            }
+                                        },
+                                        {
+                                            "keyValue": {
+                                                "topLabel": "Operator",
+                                                "content": operator.full_name
+                                            }
+                                        },
+                                        {
+                                            "keyValue": {
+                                                "topLabel": "Email",
+                                                "content": operator.email
+                                            }
+                                        },
+                                        {
+                                            "buttons": [
+                                                {
+                                                    "textButton": {
+                                                        "text": "View Dashboard",
+                                                        "onClick": {
+                                                            "openLink": {
+                                                                "url": "https://localhost:3000/signin"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            else:
+                print("No operators found in database")
+                # Fallback card when no operator is found
+                payload = {
+                    "cards": [
+                        {
+                            "header": {
+                                "title": "Support Request",
+                                "subtitle": "No assigned operator found",
+                                "imageUrl": "https://www.gstatic.com/images/icons/material/system/2x/warning_black_48dp.png",
+                                "imageStyle": "AVATAR"
+                            },
+                            "sections": [
+                                {
+                                    "widgets": [
+                                        {
+                                            "textParagraph": {
+                                                "text": "A user needs immediate assistance but no on-call operator was found in the system."
+                                            }
+                                        },
+                                        {
+                                            "buttons": [
+                                                {
+                                                    "textButton": {
+                                                        "text": "View Dashboard",
+                                                        "onClick": {
+                                                            "openLink": {
+                                                                "url": "https://localhost:3000/signin"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            
+            # Send notification
+            headers = {"Content-Type": "application/json"}
+            
+            import requests
+            response = requests.post(WEBHOOK_URL, headers=headers, json=payload)
+            print(f"Webhook response: {response.status_code} - {response.text}")
+            
+            if response.status_code == 200:
+                print("✅ Notification sent successfully")
+                if operator:
+                    return f"Operator {operator.full_name} has been notified and will assist you shortly."
+                else:
+                    return "Support team has been notified. Someone will assist you shortly."
+            else:
+                print(f"❌ Failed webhook response: {response.status_code}")
+                return "We're having trouble notifying the support team. Please try again later."
+        finally:
+            # Make sure to close the database session
+            await db.close()
+    except Exception as e:
+        print(f"🔥 Exception in notification process: {e}")
+        
+        # Fallback to direct notification without database
+        try:
+            print("Falling back to direct notification without database query")
+            payload = {
+                "text": "🚨 **URGENT Support Request**: <users/all> A user needs immediate assistance. (Database error occurred)"
+            }
+            headers = {"Content-Type": "application/json"}
+            
+            import requests
+            response = requests.post(WEBHOOK_URL, headers=headers, json=payload)
+            print(f"Fallback webhook response: {response.status_code} - {response.text}")
+            
+            if response.status_code == 200:
+                print("✅ Fallback notification sent successfully")
+                return "Support team has been notified despite database issues. Someone will assist you shortly."
+            else:
+                return "We're having trouble notifying the support team. Please try again later."
+        except Exception as fallback_error:
+            print(f"🔥 Exception in fallback notification: {fallback_error}")
+            return "An error occurred while trying to contact support. Please try again later."
+
+
 
 
 # ----------------------
