@@ -700,7 +700,7 @@ export default function OperatorDashboard() {
                           {day.is_today && (
                             <Badge className="bg-indigo-100 text-indigo-800">Today</Badge>
                           )}
-                          <DropdownMenu>
+                          {day.is_today && userData?.email === day.operator?.email && <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="outline" size="sm">
                                 Reassign
@@ -716,9 +716,9 @@ export default function OperatorDashboard() {
                                 >
                                   {operator.full_name}
                                 </DropdownMenuItem>
-                              ))}
+                              ))} 
                             </DropdownMenuContent>
-                          </DropdownMenu>
+                          </DropdownMenu>}
                         </div>
                       </div>
                     );

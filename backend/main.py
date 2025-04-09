@@ -1106,55 +1106,53 @@ async def reassign_operator(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Reassign the on-call operator for today.
-    
-    Expected request body:
+    Reassign the on-call operator.
+
+    Request body:
     {
         "switch_from": "current_operator@email.com",
         "switch_to": "new_operator@email.com"
     }
+
+    Behavior:
+    - If 'switch_from' has an active_date -> transfer it to 'switch_to'
+    - If 'switch_from' has no active_date -> just assign today's date to 'switch_to'
     """
     try:
         # Validate input
         if not all(key in reassign_data for key in ['switch_from', 'switch_to']):
             raise HTTPException(status_code=400, detail="Missing required fields")
-        
-        today = date.today()
-        
-        # Query for the current operator to be switched from
+
+        # Query for both operators
         from_result = await db.execute(
-            select(OperatorSG)
-            .where(
-                OperatorSG.email == reassign_data['switch_from'], 
-                OperatorSG.active_date == today
-            )
+            select(OperatorSG).where(OperatorSG.email == reassign_data['switch_from'])
         )
         from_operator = from_result.scalar_one_or_none()
-        
-        # Query for the new operator to be switched to
+
         to_result = await db.execute(
             select(OperatorSG).where(OperatorSG.email == reassign_data['switch_to'])
         )
         to_operator = to_result.scalar_one_or_none()
-        
-        # Validate operators
+
         if not from_operator:
-            raise HTTPException(status_code=404, detail="Current on-call operator not found")
+            raise HTTPException(status_code=404, detail="Current operator not found")
         if not to_operator:
             raise HTTPException(status_code=404, detail="New operator not found")
-        
-        # Update the active_date for both operators
-        from_operator.active_date = None  # Remove active date from current operator
-        to_operator.active_date = today   # Set active date to today for new operator
-        
-        # Commit changes to the database
+
+        # Determine which date to transfer
+        original_date = from_operator.active_date or date.today()
+
+        # Perform reassignment
+        from_operator.active_date = None
+        to_operator.active_date = original_date
+
         await db.commit()
-        
+
         # Extract usernames for Google Chat mentions
         from_username = from_operator.email.split('@')[0]
         to_username = to_operator.email.split('@')[0]
-        
-        # Prepare Google Chat notification payload
+
+        # Prepare Google Chat message
         payload = {
             "cards": [
                 {
@@ -1167,9 +1165,10 @@ async def reassign_operator(
                             "widgets": [
                                 {
                                     "textParagraph": {
-                                        "text": f"On-call operator has been switched:\n" + 
-                                                f"From: <users/{from_username}> {from_operator.full_name}\n" +
-                                                f"To: <users/{to_username}> {to_operator.full_name}"
+                                        "text": f"On-call operator has been switched:\n"
+                                                f"From: <users/{from_username}> {from_operator.full_name}\n"
+                                                f"To: <users/{to_username}> {to_operator.full_name}\n"
+                                                f"Date Assigned: {original_date}"
                                     }
                                 }
                             ]
@@ -1196,20 +1195,20 @@ async def reassign_operator(
                 }
             ]
         }
-        
-        # Send notification to Google Chat
+
+        # Send to Google Chat
         async with httpx.AsyncClient() as client:
-            webhook_url = os.getenv('GOOGLE_CHAT_WEBHOOK_URL', 
-                "https://chat.googleapis.com/v1/spaces/AAQAys6OFTM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=CCLGglbxyz8fMv0jdHhevoAp4VswRaakxnc9w-qRzFU")
+            webhook_url = os.getenv('GOOGLE_CHAT_WEBHOOK_URL', "https://chat.googleapis.com/v1/spaces/AAQAys6OFTM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=CCLGglbxyz8fMv0jdHhevoAp4VswRaakxnc9w-qRzFU")
             response = await client.post(webhook_url, json=payload)
             response.raise_for_status()
-        
+
         return {
             "status": "Operator reassigned successfully",
             "from": from_operator.full_name,
-            "to": to_operator.full_name
+            "to": to_operator.full_name,
+            "date_transferred": str(original_date)
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
