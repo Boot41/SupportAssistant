@@ -2,7 +2,7 @@ import asyncio
 import os
 import uuid
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, timedelta
 import httpx
 from fastapi import HTTPException
 from fastapi.logger import logger
@@ -380,7 +380,6 @@ async def human_support() -> str:
         except Exception as fallback_error:
             print(f"🔥 Exception in fallback notification: {fallback_error}")
             return "An error occurred while trying to contact support. Please try again later."
-
 
 
 
@@ -869,6 +868,58 @@ async def toggle_resolve(session_id: str):
         return {"message": f"Session resolved status toggled to {new_resolved_status}"}
     
     return {"error": "Session not found"}
+
+@app.get("/agent-schedule")
+async def get_weekly_agent_schedule(db: AsyncSession = Depends(get_db)):
+    """Get the weekly agent schedule showing one agent per day for the current week."""
+    try:
+        # Get current date
+        today = date.today()
+        
+        # Calculate the start of the week (Monday)
+        # If today is Monday (0), start_date is today
+        # Otherwise, go back to the most recent Monday
+        start_date = today - timedelta(days=today.weekday())
+        
+        # Create a list of dates for the week (Monday to Friday)
+        weekdays = []
+        for i in range(5):  # 0 = Monday, 4 = Friday
+            day_date = start_date + timedelta(days=i)
+            weekdays.append(day_date)
+        
+        # Initialize the schedule structure
+        schedule = {
+            "days": []
+        }
+        
+        # For each weekday, find the assigned operator
+        for day_date in weekdays:
+            # Query the database for an operator assigned to this date
+            result = await db.execute(
+                select(OperatorSG)
+                .where(OperatorSG.active_date == day_date)
+                .order_by(OperatorSG.active_date.asc())
+            )
+            operator = result.scalar_one_or_none()
+            
+            # Format the day information
+            day_info = {
+                "day": day_date.strftime("%A"),  # Full day name (Monday, Tuesday, etc.)
+                "date": day_date.strftime("%B %d, %Y"),  # Month Day, Year
+                "is_today": day_date == today,
+                "operator": {
+                    "name": operator.full_name if operator else None,
+                    "email": operator.email if operator else None
+                } if operator else None
+            }
+            
+            schedule["days"].append(day_info)
+        
+        return schedule
+    
+    except Exception as e:
+        logger.error(f"Error retrieving weekly agent schedule: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve agent schedule: {str(e)}")
 
 @app.post("/auth")
 async def auth_callback(payload: dict, db: AsyncSession = Depends(get_db)):
