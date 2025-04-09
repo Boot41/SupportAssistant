@@ -36,7 +36,7 @@ export default function OperatorDashboard() {
   const [activeTab, setActiveTab] = useState("active")
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [userData, setUserData] = useState(null)
-
+  
   useEffect(() => {
     // Retrieve user data from localStorage
     const storedUserData = localStorage.getItem('userData')
@@ -45,6 +45,7 @@ export default function OperatorDashboard() {
         const parsedData = JSON.parse(storedUserData)
         setUserData(parsedData)
         console.log('User data retrieved from localStorage:', parsedData)
+        // console.log('User data:', userData)
       } catch (error) {
         console.error('Error parsing user data from localStorage:', error)
       }
@@ -171,13 +172,16 @@ export default function OperatorDashboard() {
 
     fetchAgentSchedule();
   }, []);
- console.log(agentSchedule)
+  const Today = agentSchedule.days.find(day => day.is_today);
+//  console.log(agentSchedule)
+  // console.log(activeSessions)
+  console.log(Today)
   const stats = [
-    { label: "Active Sessions", value: activeSessions.filter(s => s.status === "Active").length, icon: Clock, color: "bg-sky-100 text-sky-700" },
+    { label: "Active Sessions", value: activeSessions.length, icon: Clock, color: "bg-sky-100 text-sky-700" },
     { label: "Resolved Sessions", value: resolvedSessions.length, icon: CheckCircle2, color: "bg-emerald-100 text-emerald-700" },
     {
       label: "Today's Agent",
-      value: "Ashwini",
+      value: Today?.operator?.name || "",
       secondaryValue: "Available until 5:00 PM",
       icon: Users,
       color: "bg-violet-100 text-violet-700",
@@ -353,13 +357,13 @@ export default function OperatorDashboard() {
                         {activeSessions.length}
                       </Badge>
                     </TabsTrigger>
-                    <TabsTrigger value="todaysAgent" className="flex items-center">
+                    {Today?.operator?.name==userData?.name && <TabsTrigger value="todaysAgent" className="flex items-center">
                       <Users className="mr-2 h-4 w-4" />
                       Today's Agent
                       <Badge className="ml-2 bg-violet-100 text-violet-700 hover:bg-violet-100">
                         {myAssignedSessions.length}
                       </Badge>
-                    </TabsTrigger>
+                    </TabsTrigger>}
                     <TabsTrigger value="resolved" className="flex items-center">
                       <CheckCircle className="mr-2 h-4 w-4" />
                       Resolved
@@ -488,8 +492,8 @@ export default function OperatorDashboard() {
                           A
                         </div>
                         <div>
-                          <h3 className="font-medium text-lg text-slate-800">Ashwini</h3>
-                          <p className="text-slate-600">Today's support agent (Monday)</p>
+                          <h3 className="font-medium text-lg text-slate-800">{Today?.operator?.name}</h3>
+                          <p className="text-slate-600">Today's support agent ({Today?.day})</p>
                           <div className="flex items-center mt-1">
                             <Badge className="bg-emerald-100 text-emerald-800">Available</Badge>
                             <span className="text-xs text-slate-500 ml-2">9:00 AM - 5:00 PM</span>
