@@ -339,7 +339,7 @@ async def human_support() -> str:
             headers = {"Content-Type": "application/json"}
             
             import requests
-            response = requests.post(WEBHOOK_URL, headers=headers, json=payload)
+            response = requests.post(os.getenv('GOOGLE_CHAT_WEBHOOK_URL', WEBHOOK_URL), headers=headers, json=payload)
             print(f"Webhook response: {response.status_code} - {response.text}")
             
             if response.status_code == 200:
@@ -366,7 +366,7 @@ async def human_support() -> str:
             headers = {"Content-Type": "application/json"}
             
             import requests
-            response = requests.post(WEBHOOK_URL, headers=headers, json=payload)
+            response = requests.post(os.getenv('GOOGLE_CHAT_WEBHOOK_URL', WEBHOOK_URL), headers=headers, json=payload)
             print(f"Fallback webhook response: {response.status_code} - {response.text}")
             
             if response.status_code == 200:
@@ -1086,10 +1086,8 @@ async def ticket_transfer_notification(
         
         # Send notification to Google Chat
         async with httpx.AsyncClient() as client:
-            webhook_url = "https://chat.googleapis.com/v1/spaces/AAQAys6OFTM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=CCLGglbxyz8fMv0jdHhevoAp4VswRaakxnc9w-qRzFU"
-            if not webhook_url:
-                raise HTTPException(status_code=500, detail="Google Chat webhook URL not configured")
-            
+            webhook_url = os.getenv('GOOGLE_CHAT_WEBHOOK_URL', 
+                "https://chat.googleapis.com/v1/spaces/AAQAys6OFTM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=CCLGglbxyz8fMv0jdHhevoAp4VswRaakxnc9w-qRzFU")
             response = await client.post(webhook_url, json=payload)
             response.raise_for_status()
         
@@ -1100,6 +1098,122 @@ async def ticket_transfer_notification(
     except Exception as e:
         logger.error(f"Error in ticket transfer notification: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send ticket transfer notification: {str(e)}")
+
+@app.post("/reassign-operator")
+async def reassign_operator(
+    reassign_data: Dict[str, str], 
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Reassign the on-call operator for today.
+    
+    Expected request body:
+    {
+        "switch_from": "current_operator@email.com",
+        "switch_to": "new_operator@email.com"
+    }
+    """
+    try:
+        # Validate input
+        if not all(key in reassign_data for key in ['switch_from', 'switch_to']):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        today = date.today()
+        
+        # Query for the current operator to be switched from
+        from_result = await db.execute(
+            select(OperatorSG)
+            .where(
+                OperatorSG.email == reassign_data['switch_from'], 
+                OperatorSG.active_date == today
+            )
+        )
+        from_operator = from_result.scalar_one_or_none()
+        
+        # Query for the new operator to be switched to
+        to_result = await db.execute(
+            select(OperatorSG).where(OperatorSG.email == reassign_data['switch_to'])
+        )
+        to_operator = to_result.scalar_one_or_none()
+        
+        # Validate operators
+        if not from_operator:
+            raise HTTPException(status_code=404, detail="Current on-call operator not found")
+        if not to_operator:
+            raise HTTPException(status_code=404, detail="New operator not found")
+        
+        # Update the active_date for both operators
+        from_operator.active_date = None  # Remove active date from current operator
+        to_operator.active_date = today   # Set active date to today for new operator
+        
+        # Commit changes to the database
+        await db.commit()
+        
+        # Extract usernames for Google Chat mentions
+        from_username = from_operator.email.split('@')[0]
+        to_username = to_operator.email.split('@')[0]
+        
+        # Prepare Google Chat notification payload
+        payload = {
+            "cards": [
+                {
+                    "header": {
+                        "title": "🔄 On-Call Operator Reassigned",
+                        "subtitle": "Operator Shift Change"
+                    },
+                    "sections": [
+                        {
+                            "widgets": [
+                                {
+                                    "textParagraph": {
+                                        "text": f"On-call operator has been switched:\n" + 
+                                                f"From: <users/{from_username}> {from_operator.full_name}\n" +
+                                                f"To: <users/{to_username}> {to_operator.full_name}"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "widgets": [
+                                {
+                                    "buttons": [
+                                        {
+                                            "textButton": {
+                                                "text": "View Dashboard",
+                                                "onClick": {
+                                                    "openLink": {
+                                                        "url": f"{os.getenv('FRONTEND_URL', 'https://support.example.com')}/signin"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        # Send notification to Google Chat
+        async with httpx.AsyncClient() as client:
+            webhook_url = os.getenv('GOOGLE_CHAT_WEBHOOK_URL', 
+                "https://chat.googleapis.com/v1/spaces/AAQAys6OFTM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=CCLGglbxyz8fMv0jdHhevoAp4VswRaakxnc9w-qRzFU")
+            response = await client.post(webhook_url, json=payload)
+            response.raise_for_status()
+        
+        return {
+            "status": "Operator reassigned successfully",
+            "from": from_operator.full_name,
+            "to": to_operator.full_name
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in operator reassignment: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to reassign operator: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
