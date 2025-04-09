@@ -16,4 +16,4 @@ yarn-error.log
 # React / Frontend
 build/
 frontend/package-lock.json
-frontend/package.json
+frontend/node_modules  
