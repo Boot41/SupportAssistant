@@ -1005,6 +1005,102 @@ async def auth_callback(payload: dict, db: AsyncSession = Depends(get_db)):
             "success": True
         }
 
+@app.post("/ticket-transfer")
+async def ticket_transfer_notification(
+    transfer_data: Dict[str, str], 
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Send a Google Chat notification for a ticket transfer between two users.
+    
+    Expected request body:
+    {
+        "from": "sender@email.com",
+        "to": "recipient@email.com",
+        "sessionId": "unique_session_id"
+    }
+    """
+    try:
+        # Validate input
+        if not all(key in transfer_data for key in ['from', 'to', 'sessionId']):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        # Query OperatorSG to get full names
+        from_result = await db.execute(
+            select(OperatorSG).where(OperatorSG.email == transfer_data['from'])
+        )
+        to_result = await db.execute(
+            select(OperatorSG).where(OperatorSG.email == transfer_data['to'])
+        )
+        
+        from_operator = from_result.scalar_one_or_none()
+        to_operator = to_result.scalar_one_or_none()
+        
+        if not from_operator or not to_operator:
+            raise HTTPException(status_code=404, detail="One or both operators not found")
+        
+        # Extract usernames for Google Chat mentions
+        from_username = from_operator.email.split('@')[0]
+        to_username = to_operator.email.split('@')[0]
+        
+        # Prepare Google Chat notification payload
+        payload = {
+            "cards": [
+                {
+                    "header": {
+                        "title": "🔄 Ticket Transfer",
+                        "subtitle": f"Ticket Transfer Request"
+                    },
+                    "sections": [
+                        {
+                            "widgets": [
+                                {
+                                    "textParagraph": {
+                                        "text": f"<users/{from_username}> {from_operator.full_name} is requesting assistance from <users/{to_username}> {to_operator.full_name} for the ticket: {transfer_data['sessionId']}"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "widgets": [
+                                {
+                                    "buttons": [
+                                        {
+                                            "textButton": {
+                                                "text": "View Dashboard",
+                                                "onClick": {
+                                                    "openLink": {
+                                                        "url": f"{os.getenv('FRONTEND_URL', 'https://support.example.com')}/signin"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        # Send notification to Google Chat
+        async with httpx.AsyncClient() as client:
+            webhook_url = "https://chat.googleapis.com/v1/spaces/AAQAys6OFTM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=CCLGglbxyz8fMv0jdHhevoAp4VswRaakxnc9w-qRzFU"
+            if not webhook_url:
+                raise HTTPException(status_code=500, detail="Google Chat webhook URL not configured")
+            
+            response = await client.post(webhook_url, json=payload)
+            response.raise_for_status()
+        
+        return {"status": "Notification for ticket transfer sent successfully"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in ticket transfer notification: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to send ticket transfer notification: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
