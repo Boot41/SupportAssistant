@@ -144,6 +144,34 @@ export default function OperatorDashboard() {
     }
   ])
 
+  const [agentSchedule, setAgentSchedule] = useState({
+    days: [
+      { day: "Monday", date: "April 07, 2025", is_today: false, operator: null },
+      { day: "Tuesday", date: "April 08, 2025", is_today: false, operator: { name: "Sukriti Singh", email: "sukriti.singh@think41.com" } },
+      { day: "Wednesday", date: "April 09, 2025", is_today: true, operator: { name: "Abhineeth Srinivasa", email: "abhineeth.srinivasa@think41.com" } },
+      { day: "Thursday", date: "April 10, 2025", is_today: false, operator: null },
+      { day: "Friday", date: "April 11, 2025", is_today: false, operator: null }
+    ]
+  });
+
+  useEffect(() => {
+    // Fetch agent schedule data
+    const fetchAgentSchedule = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/agent-schedule');
+        if (!response.ok) {
+          throw new Error('Failed to fetch agent schedule');
+        }
+        const data = await response.json();
+        setAgentSchedule(data);
+      } catch (error) {
+        console.error('Error fetching agent schedule:', error);
+      }
+    };
+
+    fetchAgentSchedule();
+  }, []);
+ console.log(agentSchedule)
   const stats = [
     { label: "Active Sessions", value: activeSessions.filter(s => s.status === "Active").length, icon: Clock, color: "bg-sky-100 text-sky-700" },
     { label: "Resolved Sessions", value: resolvedSessions.length, icon: CheckCircle2, color: "bg-emerald-100 text-emerald-700" },
@@ -177,7 +205,7 @@ export default function OperatorDashboard() {
           throw new Error('Failed to fetch sessions');
         }
         const data = await response.json();
-        
+        // console.log(data);
         // Transform the data to match our UI format
         const transformedSessions = data.map((session: any) => ({
           id: session.session_id,
@@ -185,7 +213,8 @@ export default function OperatorDashboard() {
           ended: session.ended_at ? new Date(session.ended_at).toLocaleString() : "N/A",
           status: session.ended_at ? "Ended" : "Active",
           assignedTo: session.user_id || "Unassigned",
-          priority: session.resolved ? "High" : "Medium", // Default priority since not provided by backend
+          priority: session.resolved ? "High" : "Medium", 
+          resolved: session.resolved,
         }));
 
         // Sort by start date (newest first)
@@ -193,10 +222,10 @@ export default function OperatorDashboard() {
           return new Date(b.started).getTime() - new Date(a.started).getTime();
         });
 
-        setActiveSessions(transformedSessions);
+        setActiveSessions(transformedSessions.filter((session: any) => session.resolved === false));
         
         // Filter resolved sessions
-        const resolved = transformedSessions.filter((session: any) => session.status === "Ended");
+        const resolved = transformedSessions.filter((session: any) => session.resolved === true);
         setResolvedSessions(resolved);
         
         // Filter assigned sessions (for demo, just use the first two)
@@ -377,7 +406,7 @@ export default function OperatorDashboard() {
                                 </Badge>
                               </td>
                               <td className="p-3 flex gap-2">
-                                <DropdownMenu>
+                                {/* <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <Button size="sm" variant="outline" className="border-slate-300">
                                       <Users className="h-4 w-4 mr-1" />
@@ -437,7 +466,7 @@ export default function OperatorDashboard() {
                                       </DropdownMenuSubContent>
                                     </DropdownMenuSub>
                                   </DropdownMenuContent>
-                                </DropdownMenu>
+                                </DropdownMenu> */}
                                 <Link to={`/operator/view/${session.id}`}>
                                   <Button size="sm" variant="outline" className="border-slate-300">
                                     <Eye className="h-4 w-4 mr-1" />
@@ -577,46 +606,33 @@ export default function OperatorDashboard() {
 
               <CardContent>
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between p-2 border-l-4 border-indigo-500 bg-indigo-50 rounded-r-lg">
-                    <div>
-                      <p className="font-medium">Monday</p>
-                      <p className="text-xs text-slate-500">April 8, 2025</p>
-                      <p className="text-sm font-medium text-indigo-700">Ashwini</p>
-                    </div>
-                    <Badge className="bg-indigo-100 text-indigo-800">Today</Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-2 border-l-4 border-emerald-500 bg-emerald-50 rounded-r-lg">
-                    <div>
-                      <p className="font-medium">Tuesday</p>
-                      <p className="text-xs text-slate-500">April 9, 2025</p>
-                      <p className="text-sm font-medium text-emerald-700">Aniket</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-2 border-l-4 border-amber-500 bg-amber-50 rounded-r-lg">
-                    <div>
-                      <p className="font-medium">Wednesday</p>
-                      <p className="text-xs text-slate-500">April 10, 2025</p>
-                      <p className="text-sm font-medium text-amber-700">David</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-2 border-l-4 border-violet-500 bg-violet-50 rounded-r-lg">
-                    <div>
-                      <p className="font-medium">Thursday</p>
-                      <p className="text-xs text-slate-500">April 11, 2025</p>
-                      <p className="text-sm font-medium text-violet-700">Priya</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-2 border-l-4 border-sky-500 bg-sky-50 rounded-r-lg">
-                    <div>
-                      <p className="font-medium">Friday</p>
-                      <p className="text-xs text-slate-500">April 12, 2025</p>
-                      <p className="text-sm font-medium text-sky-700">Rahul</p>
-                    </div>
-                  </div>
+                  {agentSchedule.days.map((day, index) => {
+                    // Define colors for each day of the week
+                    const colors = [
+                      { border: 'border-indigo-500', bg: 'bg-indigo-50', text: 'text-indigo-700' },
+                      { border: 'border-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-700' },
+                      { border: 'border-amber-500', bg: 'bg-amber-50', text: 'text-amber-700' },
+                      { border: 'border-violet-500', bg: 'bg-violet-50', text: 'text-violet-700' },
+                      { border: 'border-sky-500', bg: 'bg-sky-50', text: 'text-sky-700' }
+                    ];
+                    
+                    const colorSet = colors[index % colors.length];
+                    
+                    return (
+                      <div key={index} className={`flex items-center justify-between p-2 border-l-4 ${colorSet.border} ${colorSet.bg} rounded-r-lg`}>
+                        <div>
+                          <p className="font-medium">{day.day}</p>
+                          <p className="text-xs text-slate-500">{day.date}</p>
+                          <p className={`text-sm font-medium ${colorSet.text}`}>
+                            {day.operator ? day.operator.name : 'Unassigned'}
+                          </p>
+                        </div>
+                        {day.is_today && (
+                          <Badge className="bg-indigo-100 text-indigo-800">Today</Badge>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

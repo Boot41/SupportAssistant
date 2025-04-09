@@ -3,7 +3,7 @@ import os
 import uuid
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, date, timedelta
-import httpx
+import httpx  # Using httpx for async HTTP requests
 from fastapi import HTTPException
 from fastapi.logger import logger
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
@@ -174,14 +174,11 @@ async def _handle_roster_notification(db: AsyncSession):
                 "text": "🚨 **Support Request Alert**: A user needs assistance, but no on-call operator was found in the system."
             }
             headers = {"Content-Type": "application/json"}
-            try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(WEBHOOK_URL, headers=headers, json=payload)
-                print(f"Webhook response: {response.status_code} - {response.text}")
-                return "Support team has been notified, but no specific operator is on call."
-            except Exception as e:
-                print(f"🔥 Exception sending default notification: {e}")
-                return f"Failed to notify support team: {e}"
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(WEBHOOK_URL, headers=headers, json=payload)
+            print(f"Webhook response: {response.status_code} - {response.text}")
+            return "Support team has been notified, but no specific operator is on call."
         
         print(f"👤 Found on-call operator: {operator.full_name} ({operator.email})")
         # If we have an operator, format the message with their details
@@ -877,8 +874,6 @@ async def get_weekly_agent_schedule(db: AsyncSession = Depends(get_db)):
         today = date.today()
         
         # Calculate the start of the week (Monday)
-        # If today is Monday (0), start_date is today
-        # Otherwise, go back to the most recent Monday
         start_date = today - timedelta(days=today.weekday())
         
         # Create a list of dates for the week (Monday to Friday)
@@ -894,18 +889,21 @@ async def get_weekly_agent_schedule(db: AsyncSession = Depends(get_db)):
         
         # For each weekday, find the assigned operator
         for day_date in weekdays:
-            # Query the database for an operator assigned to this date
+            # Query the database for operators assigned to this date
             result = await db.execute(
                 select(OperatorSG)
                 .where(OperatorSG.active_date == day_date)
                 .order_by(OperatorSG.active_date.asc())
             )
-            operator = result.scalar_one_or_none()
+            
+            # Get the first operator if multiple exist
+            operator_row = result.first()
+            operator = operator_row[0] if operator_row else None
             
             # Format the day information
             day_info = {
-                "day": day_date.strftime("%A"),  # Full day name (Monday, Tuesday, etc.)
-                "date": day_date.strftime("%B %d, %Y"),  # Month Day, Year
+                "day": day_date.strftime("%A"),
+                "date": day_date.strftime("%B %d, %Y"),
                 "is_today": day_date == today,
                 "operator": {
                     "name": operator.full_name if operator else None,
@@ -916,7 +914,6 @@ async def get_weekly_agent_schedule(db: AsyncSession = Depends(get_db)):
             schedule["days"].append(day_info)
         
         return schedule
-    
     except Exception as e:
         logger.error(f"Error retrieving weekly agent schedule: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve agent schedule: {str(e)}")

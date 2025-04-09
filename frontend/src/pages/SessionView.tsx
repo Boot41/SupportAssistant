@@ -585,13 +585,13 @@ export default function OperatorSessionDetails() {
                         </div>
                       </div>
 
-                      <div className="mb-4">
+                      <div className="mb-4 relative">
                         <p className="text-sm text-slate-500 mb-2">Select Agent</p>
                         <Select onValueChange={assignAgent}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Choose an agent" />
+                        <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Choose an agent" />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent position="popper" sideOffset={5} className="z-[9999] bg-white shadow-lg border border-slate-200 rounded-md">
                             {availableAgents.map((agent) => (
                               <SelectItem key={agent.id} value={agent.id.toString()}>
                                 <div className="flex items-center">
