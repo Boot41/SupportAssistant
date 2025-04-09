@@ -30,6 +30,9 @@ export default function SignIn() {
         });
         if(res.data.success) {
           console.log(res.data)
+          // Store user data in localStorage
+          localStorage.setItem('userData', JSON.stringify(res.data));
+          // Redirect to operator dashboard
           window.location.href = '/operator';
         }
       } catch (err) {

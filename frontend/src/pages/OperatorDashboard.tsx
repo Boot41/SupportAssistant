@@ -35,7 +35,24 @@ import { Link } from "react-router-dom"
 export default function OperatorDashboard() {
   const [activeTab, setActiveTab] = useState("active")
   const [isRefreshing, setIsRefreshing] = useState(false)
-  
+  const [userData, setUserData] = useState(null)
+
+  useEffect(() => {
+    // Retrieve user data from localStorage
+    const storedUserData = localStorage.getItem('userData')
+    if (storedUserData) {
+      try {
+        const parsedData = JSON.parse(storedUserData)
+        setUserData(parsedData)
+        console.log('User data retrieved from localStorage:', parsedData)
+      } catch (error) {
+        console.error('Error parsing user data from localStorage:', error)
+      }
+    } else {
+      console.log('No user data found in localStorage')
+    }
+  }, [])
+
   // Define the session type
   type Session = {
     id: string;
@@ -194,7 +211,7 @@ export default function OperatorDashboard() {
     };
     fetchSessions();
   }, []);
-
+  console.log(activeSessions)
   return (
     <div className="min-h-screen bg-slate-50">
       <OperatorNavbar />
