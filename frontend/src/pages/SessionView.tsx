@@ -550,13 +550,13 @@ export default function OperatorSessionDetails() {
                     {sessionData.status === "Active" ? (
                       <>
                         <Link to={`/operator/chat/${sessionId}`} className="flex-1">
-                          <Button className="w-full bg-indigo-700 hover:bg-indigo-800">
+                          <Button className="w-full bg-indigo-700 hover:bg-indigo-800 text-white">
                             <MessageSquare className="h-4 w-4 mr-2" />
                             {sessionData.hasJoined ? "Return to Chat" : "Join Chat"}
                           </Button>
                         </Link>
                         <Button 
-                          className="bg-emerald-600 hover:bg-emerald-700"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
                           onClick={toggleResolveStatus}
                         >
                           <CheckCircle className="h-4 w-4 mr-2" />
@@ -674,7 +674,7 @@ export default function OperatorSessionDetails() {
                       </div>
 
                       <Button 
-                        className="w-full bg-indigo-800 hover:bg-indigo-900"
+                        className="w-full bg-indigo-800 hover:bg-indigo-900 text-white"
                         onClick={handleTicketTransfer}
                         disabled={!selectedOperatorEmail}
                       >
