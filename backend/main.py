@@ -339,6 +339,7 @@ async def human_support() -> str:
             headers = {"Content-Type": "application/json"}
             
             import requests
+            
             response = requests.post(os.getenv('GOOGLE_CHAT_WEBHOOK_URL', WEBHOOK_URL), headers=headers, json=payload)
             print(f"Webhook response: {response.status_code} - {response.text}")
             
@@ -1214,6 +1215,37 @@ async def reassign_operator(
     except Exception as e:
         logger.error(f"Error in operator reassignment: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to reassign operator: {str(e)}")
+
+@app.get("/operators")
+async def get_all_operators(db: AsyncSession = Depends(get_db)):
+    """
+    Retrieve all operators with their full names and email addresses.
+    
+    Returns:
+    - A list of dictionaries containing full_name and email for each operator
+    """
+    try:
+        # Query all operators and select only full_name and email
+        result = await db.execute(
+            select(OperatorSG.full_name, OperatorSG.email)
+        )
+        
+        # Convert the result to a list of dictionaries
+        operators = [
+            {
+                "full_name": row.full_name,
+                "email": row.email
+            } for row in result.all()
+        ]
+        
+        return {
+            "operators": operators,
+            "total_count": len(operators)
+        }
+    
+    except Exception as e:
+        logger.error(f"Error retrieving operators: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve operators: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
