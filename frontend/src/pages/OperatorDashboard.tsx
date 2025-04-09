@@ -35,25 +35,9 @@ import { Link } from "react-router-dom"
 export default function OperatorDashboard() {
   const [activeTab, setActiveTab] = useState("active")
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [userData, setUserData] = useState(null)
-  
-  useEffect(() => {
-    // Retrieve user data from localStorage
-    const storedUserData = localStorage.getItem('userData')
-    if (storedUserData) {
-      try {
-        const parsedData = JSON.parse(storedUserData)
-        setUserData(parsedData)
-        console.log('User data retrieved from localStorage:', parsedData)
-        // console.log('User data:', userData)
-      } catch (error) {
-        console.error('Error parsing user data from localStorage:', error)
-      }
-    } else {
-      console.log('No user data found in localStorage')
-    }
-  }, [])
-
+  const storedUserData=localStorage.getItem('userData');
+  const userData=JSON.parse(storedUserData || '');
+  console.log(userData);
   // Define the session type
   type Session = {
     id: string;
@@ -155,6 +139,19 @@ export default function OperatorDashboard() {
     ]
   });
 
+  // Define types for operators
+  interface Operator {
+    full_name: string;
+    email: string;
+  }
+
+  interface OperatorsResponse {
+    operators: Operator[];
+    total_count: number;
+  }
+
+  const [operators, setOperators] = useState<Operator[]>([]);
+
   useEffect(() => {
     // Fetch agent schedule data
     const fetchAgentSchedule = async () => {
@@ -164,6 +161,7 @@ export default function OperatorDashboard() {
           throw new Error('Failed to fetch agent schedule');
         }
         const data = await response.json();
+        console.log(data);
         setAgentSchedule(data);
       } catch (error) {
         console.error('Error fetching agent schedule:', error);
@@ -172,32 +170,71 @@ export default function OperatorDashboard() {
 
     fetchAgentSchedule();
   }, []);
-  const Today = agentSchedule.days.find(day => day.is_today);
-//  console.log(agentSchedule)
-  // console.log(activeSessions)
-  console.log(Today)
-  const stats = [
-    { label: "Active Sessions", value: activeSessions.length, icon: Clock, color: "bg-sky-100 text-sky-700" },
-    { label: "Resolved Sessions", value: resolvedSessions.length, icon: CheckCircle2, color: "bg-emerald-100 text-emerald-700" },
-    {
-      label: "Today's Agent",
-      value: Today?.operator?.name || "",
-      secondaryValue: "Available until 5:00 PM",
-      icon: Users,
-      color: "bg-violet-100 text-violet-700",
-      trend: `${myAssignedSessions.length} sessions in progress`,
-    },
-  ]
 
-  const handleRefresh = () => {
-    setIsRefreshing(true)
+  // Fetch all operators
+  useEffect(() => {
+    const fetchOperators = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/operators');
+        if (!response.ok) {
+          throw new Error('Failed to fetch operators');
+        }
+        const data = await response.json();
+        console.log('Operators:', data);
+        setOperators(data.operators || []);
+      } catch (error) {
+        console.error('Error fetching operators:', error);
+      }
+    };
 
-    // Simulate a refresh delay
-    setTimeout(() => {
-      // In a real app, you would fetch new data here
-      setIsRefreshing(false)
-    }, 1000)
-  }
+    fetchOperators();
+  }, []);
+
+  // Handle operator reassignment
+  const handleReassignOperator = async (dayIndex: number, operatorEmail: string) => {
+    if (!userData?.email) return;
+    
+    try {
+      // Get the day information
+      const day = agentSchedule.days[dayIndex];
+      
+      // Call the ticket-transfer API
+      const response = await fetch('http://localhost:8000/reassign-operator', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          switch_from: userData.email,
+          switch_to: operatorEmail,
+          sessionId: `Schedule_${day.day}_${day.date}` // Create a unique identifier for the schedule
+        })
+      });
+
+      if (response.ok) {
+        // Update the local state to reflect the change
+        const updatedSchedule = { ...agentSchedule };
+        const selectedOperator = operators.find(op => op.email === operatorEmail);
+        
+        if (selectedOperator) {
+          updatedSchedule.days[dayIndex].operator = {
+            name: selectedOperator.full_name,
+            email: selectedOperator.email
+          };
+          setAgentSchedule(updatedSchedule);
+        }
+        
+        alert(`Successfully reassigned ${day.day} to ${selectedOperator?.full_name}`);
+      } else {
+        const errorData = await response.json();
+        console.error('Error reassigning operator:', errorData);
+        alert('Failed to reassign operator. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error reassigning operator:', error);
+      alert('An error occurred while reassigning the operator. Please try again.');
+    }
+  };
 
   useEffect(() => {
     // Fetch sessions from the backend
@@ -245,6 +282,34 @@ export default function OperatorDashboard() {
     fetchSessions();
   }, []);
   console.log(activeSessions)
+  const agents = agentSchedule.days.map(day => day.operator);
+  const Today = agentSchedule.days.find(day => day.is_today);
+//  console.log(agentSchedule)
+  // console.log(activeSessions)
+  console.log(Today)
+  const stats = [
+    { label: "Active Sessions", value: activeSessions.length, icon: Clock, color: "bg-sky-100 text-sky-700" },
+    { label: "Resolved Sessions", value: resolvedSessions.length, icon: CheckCircle2, color: "bg-emerald-100 text-emerald-700" },
+    {
+      label: "Today's Agent",
+      value: Today?.operator?.name || "",
+      secondaryValue: "Available until 5:00 PM",
+      icon: Users,
+      color: "bg-violet-100 text-violet-700",
+      trend: `${myAssignedSessions.length} sessions in progress`,
+    },
+  ]
+
+  const handleRefresh = () => {
+    setIsRefreshing(true)
+
+    // Simulate a refresh delay
+    setTimeout(() => {
+      // In a real app, you would fetch new data here
+      setIsRefreshing(false)
+    }, 1000)
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <OperatorNavbar />
@@ -631,9 +696,30 @@ export default function OperatorDashboard() {
                             {day.operator ? day.operator.name : 'Unassigned'}
                           </p>
                         </div>
-                        {day.is_today && (
-                          <Badge className="bg-indigo-100 text-indigo-800">Today</Badge>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {day.is_today && (
+                            <Badge className="bg-indigo-100 text-indigo-800">Today</Badge>
+                          )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                Reassign
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-56">
+                              <DropdownMenuLabel>Select Operator</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              {operators.map((operator) => (
+                                <DropdownMenuItem 
+                                  key={operator.email}
+                                  onClick={() => handleReassignOperator(index, operator.email)}
+                                >
+                                  {operator.full_name}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </div>
                     );
                   })}

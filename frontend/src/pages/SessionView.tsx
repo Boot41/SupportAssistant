@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { ArrowLeft, MessageSquare, Clock, Users, AlertCircle, Flag, CheckCircle } from "lucide-react"
 import OperatorNavbar from "../components/operator-navbar"
 import { Link, useParams } from "react-router-dom"
+import { useToast } from "../ui/use-toast"
 
 // Define TypeScript interfaces for our data structures
 interface Message {
@@ -48,13 +49,50 @@ interface SessionData {
   conversation: Message[]
 }
 
+// Define types for operators
+interface Operator {
+  full_name: string;
+  email: string;
+}
+
+interface OperatorsResponse {
+  operators: Operator[];
+  total_count: number;
+}
+
 export default function OperatorSessionDetails() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const [sessionData, setSessionData] = useState<SessionData | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
+  const [Operators, setOperators] = useState<OperatorsResponse | null>(null);
+  const [selectedOperatorEmail, setSelectedOperatorEmail] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const storedUserData=localStorage.getItem('userData');
+  const userData=JSON.parse(storedUserData || '');
+  const { toast } = useToast();
+  console.log(userData);
+  useEffect(() => {
+    // Fetch agent schedule data
+    const fetchAgentSchedule = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/operators');
+        if (!response.ok) {
+          throw new Error('Failed to fetch agent schedule');
+        }
+        const data = await response.json();
+        console.log(data);
+        setOperators(data);
+      } catch (error) {
+        console.error('Error fetching agent schedule:', error);
+      }
+    };
 
+    fetchAgentSchedule();
+  }, []);
+
+
+  console.log("operator",Operators)
   const availableAgents: Agent[] = [
     { id: 1, name: "Sarah Johnson", status: "Available" },
     { id: 2, name: "Michael Chen", status: "Busy" },
@@ -228,35 +266,64 @@ export default function OperatorSessionDetails() {
     }
   }
 
-  const assignAgent = async (agentId: string) => {
-    if (!sessionId || !sessionData) return
+  const assignAgent = async (agentEmail: string) => {
+    setSelectedOperatorEmail(agentEmail);
+  }
 
-    const agent = availableAgents.find(a => a.id.toString() === agentId)
-    if (!agent) return
+  const handleTicketTransfer = async () => {
+    if (!sessionId || !selectedOperatorEmail || !userData?.email) return;
 
     try {
-      // Try to call API
-      const response = await fetch(`http://localhost:8000/sessions/${sessionId}/assign`, {
+      // Call the ticket-transfer API
+      const response = await fetch('http://localhost:8000/ticket-transfer', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ agent_id: agentId, agent_name: agent.name })
-      })
+        body: JSON.stringify({
+          from: userData.email,
+          to: selectedOperatorEmail,
+          sessionId: sessionId
+        })
+      });
 
-      // Update local state regardless of API response
-      setSessionData(prevData => {
-        if (!prevData) return prevData
-
-        return {
-          ...prevData,
-          assignedTo: agent.name
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Ticket transfer successful:", data);
+        
+        // Update UI to show transfer was successful
+        toast({
+          title: "Ticket Transfer Initiated",
+          description: "The operator has been notified about this ticket.",
+          status: "success"
+        });
+        
+        // Update local state to show the assigned operator
+        const selectedOperator = Operators?.operators?.find(op => op.email === selectedOperatorEmail);
+        if (selectedOperator && sessionData) {
+          setSessionData({
+            ...sessionData,
+            assignedTo: selectedOperator.full_name
+          });
         }
-      })
-    } catch (err) {
-      console.error("Error assigning agent:", err)
+      } else {
+        const errorData = await response.json();
+        console.error("Ticket transfer failed:", errorData);
+        toast({
+          title: "Transfer Failed",
+          description: errorData.detail || "Failed to transfer the ticket. Please try again.",
+          status: "error"
+        });
+      }
+    } catch (error) {
+      console.error("Error transferring ticket:", error);
+      toast({
+        title: "Transfer Failed",
+        description: "An error occurred while transferring the ticket. Please try again.",
+        status: "error"
+      });
     }
-  }
+  };
 
   if (loading) {
     return <div className="flex items-center justify-center min-h-screen">
@@ -315,14 +382,14 @@ export default function OperatorSessionDetails() {
                 </div>
               </div>
             </div>
-            <div className="flex gap-2">
+            {/* <div className="flex gap-2">
               {sessionData.status === "Active" && !sessionData.hasJoined && (
                 <div className="bg-indigo-800 px-3 py-2 rounded-md text-xs text-indigo-100 flex items-center">
                   <AlertCircle className="h-3.5 w-3.5 mr-1.5" />
                   Join chat to resolve
                 </div>
               )}
-            </div>
+            </div> */}
           </CardHeader>
 
           <CardContent className="p-4">
@@ -592,20 +659,12 @@ export default function OperatorSessionDetails() {
                         <SelectValue placeholder="Choose an agent" />
                           </SelectTrigger>
                           <SelectContent position="popper" sideOffset={5} className="z-[9999] bg-white shadow-lg border border-slate-200 rounded-md">
-                            {availableAgents.map((agent) => (
-                              <SelectItem key={agent.id} value={agent.id.toString()}>
+                            {Operators?.operators?.map((operator) => (
+                              <SelectItem key={operator.email} value={operator.email}>
                                 <div className="flex items-center">
-                                  <span>{agent.name}</span>
-                                  <Badge
-                                    className={
-                                      agent.status === "Available"
-                                        ? "ml-2 bg-emerald-100 text-emerald-800"
-                                        : agent.status === "Busy"
-                                          ? "ml-2 bg-amber-100 text-amber-800"
-                                          : "ml-2 bg-slate-100 text-slate-800"
-                                    }
-                                  >
-                                    {agent.status}
+                                  <span>{operator.full_name}</span>
+                                  <Badge className="ml-2 bg-emerald-100 text-emerald-800">
+                                    Available
                                   </Badge>
                                 </div>
                               </SelectItem>
@@ -616,10 +675,8 @@ export default function OperatorSessionDetails() {
 
                       <Button 
                         className="w-full bg-indigo-800 hover:bg-indigo-900"
-                        onClick={() => {
-                          // This would be handled by the Select's onValueChange
-                          // This button is now just a visual element
-                        }}
+                        onClick={handleTicketTransfer}
+                        disabled={!selectedOperatorEmail}
                       >
                         Assign Agent
                       </Button>
