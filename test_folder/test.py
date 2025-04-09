@@ -65,6 +65,13 @@ async def check_transcript_exists(
 async def human_support() -> str:
     return "Human Support will be notified shortly. Please hold on."
 
+@function_tool(
+    name_override="mark_issue_resolved",
+    description_override="Mark the user's issue as resolved and close the support session"
+)
+async def mark_issue_resolved(context: RunContextWrapper[SupportContext]) -> str:
+    context.context.issue_resolved = True
+    return "✅ Your issue has been marked as resolved. Thank you for contacting support!"
 
 # ----------------------
 # AGENTS
@@ -170,7 +177,7 @@ If the user mentions video issues (camera not showing up or video feed is black)
 
 Be patient, clear, and encouraging — like a helpful teammate solving it with them.
 """,
-    tools=[check_transcript_exists]
+    tools=[check_transcript_exists, mark_issue_resolved]
 )
 
 marketing_agent = Agent[SupportContext](
@@ -222,7 +229,7 @@ If a client is interested in trying Recruit41:
 
 Recruit41 is trusted by startups, enterprise firms, and recruitment agencies. A demo is available at https://demo.recruit41.com.
 """,
-    tools=[WebSearchTool()]
+    tools=[WebSearchTool(), mark_issue_resolved]
 )
 # Define the Triage Agent (decides whether to escalate or resolve the issue)
 triage_agent = Agent[SupportContext](
@@ -237,12 +244,13 @@ Agents available:
 - MarketingAgent: Handles questions about pricing, demos, and campaigns.
 
 When the issue is resolved, thank the user and check if they are satisfied. If not, inform them that we will escalate the issue to a human support agent.
+
 """,
     handoffs=[
         handoff(technical_agent),
         handoff(marketing_agent),
     ],
-    tools=[human_support]
+    tools=[human_support, mark_issue_resolved]
 )
 
 # Add re-routing support

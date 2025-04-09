@@ -171,20 +171,26 @@ async def update_ticket_end_time(session_id):
             await session.commit()
 
 async def get_all_tickets():
-    """Get all tickets from the database"""
+    """Get all tickets from the database with operator details"""
     async with async_session() as session:
-        result = await session.execute(select(Ticket))
-        tickets = result.scalars().all()
+        # Join with Operator table to get operator details
+        result = await session.execute(
+            select(Ticket, OperatorSG.full_name)
+            .outerjoin(OperatorSG, Ticket.op_id == OperatorSG.id)
+        )
+        tickets = result.all()
         
         # Convert to dictionary format similar to MongoDB
         ticket_list = []
-        for ticket in tickets:
+        for ticket, full_name in tickets:
             ticket_dict = {
                 "session_id": ticket.session_id,
                 "started_at": ticket.started_at.isoformat() if ticket.started_at else None,
                 "ended_at": ticket.ended_at.isoformat() if ticket.ended_at else None,
                 "resolved": ticket.resolved,
-                "user_id": ticket.user_id
+                "user_id": ticket.user_id,
+                "operator_id": ticket.op_id,
+                "operator_name": full_name if full_name else "Unassigned"
             }
             ticket_list.append(ticket_dict)
         
@@ -215,7 +221,7 @@ async def get_ticket_with_conversations(session_id):
             "ended_at": ticket.ended_at.isoformat() if ticket.ended_at else None,
             "resolved": ticket.resolved,
             "user_id": ticket.user_id,
-            "conversation": []
+            "operator_id": ticket.op_id,
         }
         
         for conv in conversations:

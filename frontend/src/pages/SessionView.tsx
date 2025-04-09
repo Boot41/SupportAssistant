@@ -579,12 +579,12 @@ export default function OperatorSessionDetails() {
                           </div>
                           <p className="mt-2 text-xs text-slate-500">This session has been resolved and cannot be continued</p>
                         </div>
-                        <Button 
+                        {/* <Button 
                           className="bg-amber-500 hover:bg-amber-600"
                           onClick={toggleResolveStatus}
                         >
                           Reopen Session
-                        </Button>
+                        </Button> */}
                       </>
                     )}
                   </div>

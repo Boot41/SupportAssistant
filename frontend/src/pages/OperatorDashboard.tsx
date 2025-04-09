@@ -15,6 +15,7 @@ import {
   Search,
   RefreshCw,
   Bell,
+  User
 } from "lucide-react"
 import { Input } from "../ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
@@ -151,6 +152,25 @@ export default function OperatorDashboard() {
   }
 
   const [operators, setOperators] = useState<Operator[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Filter sessions based on search query
+  const filterSessions = (sessions: Session[]) => {
+    if (!searchQuery.trim()) return sessions;
+    
+    const query = searchQuery.toLowerCase();
+    return sessions.filter(session => 
+      session.id.toLowerCase().includes(query) || 
+      session.assignedTo.toLowerCase().includes(query) ||
+      session.status.toLowerCase().includes(query) ||
+      session.priority.toLowerCase().includes(query)
+    );
+  };
+
+  // Filtered sessions
+  const filteredActiveSessions = filterSessions(activeSessions);
+  const filteredResolvedSessions = filterSessions(resolvedSessions);
+  const filteredMyAssignedSessions = filterSessions(myAssignedSessions);
 
   useEffect(() => {
     // Fetch agent schedule data
@@ -246,16 +266,17 @@ export default function OperatorDashboard() {
           throw new Error('Failed to fetch sessions');
         }
         const data = await response.json();
-        // console.log(data);
+        console.log(data);
         // Transform the data to match our UI format
         const transformedSessions = data.map((session: any) => ({
           id: session.session_id,
           started: new Date(session.started_at).toLocaleString(),
           ended: session.ended_at ? new Date(session.ended_at).toLocaleString() : "N/A",
           status: session.ended_at ? "Ended" : "Active",
-          assignedTo: session.user_id || "Unassigned",
+          assignedTo: session.operator_name || "Unassigned",
           priority: session.resolved ? "High" : "Medium", 
           resolved: session.resolved,
+          operator_id: session.operator_id
         }));
 
         // Sort by start date (newest first)
@@ -270,7 +291,9 @@ export default function OperatorDashboard() {
         setResolvedSessions(resolved);
         
         // Filter assigned sessions (for demo, just use the first two)
-        const assigned = transformedSessions.slice(0, 2);
+        const assigned = transformedSessions.filter((session: any) => 
+          session.operator_id === userData.operator_id && session.resolved === false
+        );
         setMyAssignedSessions(assigned);
         
         setIsRefreshing(false);
@@ -317,18 +340,22 @@ export default function OperatorDashboard() {
       <main className="container mx-auto py-8 px-4">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
           <div>
-            <p className="text-slate-500">Manage interview sessions and support operations</p>
+            <div className="flex items-center gap-3 mb-3">
+              <User className="h-5 w-5 text-indigo-600" />
+              <h1 className="text-xl font-bold text-slate-900">Welcome, {userData?.name || 'Operator'}</h1>
+            </div>
+            <p className="text-sm text-slate-600">Manage interview sessions and support operations</p>
           </div>
           <div className="mt-4 md:mt-0">
-            <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200 px-3 py-1">
-              <Clock className="h-3.5 w-3.5 mr-1.5" />
-              Last updated: {new Date().toLocaleTimeString()}
+            <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200 px-4 py-2">
+              <Clock className="h-4 w-4 mr-2" />
+              <span className="font-medium">Last updated: {new Date().toLocaleTimeString()}</span>
             </Badge>
           </div>
         </div>
 
         <div className="mb-8">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">Dashboard Overview</h2>
+          <h2 className="text-2xl font-bold text-slate-900 mb-6">Dashboard Overview</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {stats.map((stat, index) => (
               <Card
@@ -381,16 +408,18 @@ export default function OperatorDashboard() {
                       <Input
                         placeholder="Search sessions..."
                         className="pl-9 max-w-xs"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                       />
                     </div>
-                    <Button variant="outline" size="icon">
+                    {/* <Button variant="outline" size="icon">
                       <Filter className="h-4 w-4" />
-                    </Button>
+                    </Button> */}
                   </div>
 
                   <div className="flex gap-2">
-                    <Select defaultValue="all">
-                      <SelectTrigger className="w-full sm:w-[180px]">
+                    {/* <Select defaultValue="all"> */}
+                      {/* <SelectTrigger className="w-full sm:w-[180px]">
                         <SelectValue placeholder="Filter by priority" />
                       </SelectTrigger>
                       <SelectContent>
@@ -399,7 +428,7 @@ export default function OperatorDashboard() {
                         <SelectItem value="medium">Medium Priority</SelectItem>
                         <SelectItem value="low">Low Priority</SelectItem>
                       </SelectContent>
-                    </Select>
+                    </Select> */}
 
                     <Button
                       variant="outline"
@@ -451,14 +480,14 @@ export default function OperatorDashboard() {
                           </tr>
                         </thead>
                         <tbody>
-                          {activeSessions.map((session, index) => (
+                          {filteredActiveSessions.map((session, index) => (
                             <tr
                               key={session.id}
                               className={`border-b border-slate-200 hover:bg-slate-50 transition-colors ${
-                                index === activeSessions.length - 1 ? "border-b-0" : ""
+                                index === filteredActiveSessions.length - 1 ? "border-b-0" : ""
                               }`}
                             >
-                              <td className="p-3 font-medium text-slate-700">{activeSessions.length - index}</td>
+                              <td className="p-3 font-medium text-slate-700">{filteredActiveSessions.length - index}</td>
                               <td className="p-3 font-mono text-sm">{session.id}</td>
                               <td className="p-3 text-slate-700">{session.started}</td>
                               <td className="p-3">
@@ -580,14 +609,14 @@ export default function OperatorDashboard() {
                           </tr>
                         </thead>
                         <tbody>
-                          {myAssignedSessions.map((session, index) => (
+                          {filteredMyAssignedSessions.map((session, index) => (
                             <tr
                               key={session.id}
                               className={`border-b border-slate-200 hover:bg-slate-50 transition-colors ${
-                                index === myAssignedSessions.length - 1 ? "border-b-0" : ""
+                                index === filteredMyAssignedSessions.length - 1 ? "border-b-0" : ""
                               }`}
                             >
-                              <td className="p-3 font-medium text-slate-700">{myAssignedSessions.length - index}</td>
+                              <td className="p-3 font-medium text-slate-700">{filteredMyAssignedSessions.length - index}</td>
                               <td className="p-3 font-mono text-sm">{session.id}</td>
                               <td className="p-3 text-slate-700">{session.started}</td>
                               <td className="p-3">
@@ -632,14 +661,14 @@ export default function OperatorDashboard() {
                           </tr>
                         </thead>
                         <tbody>
-                          {resolvedSessions.map((session, index) => (
+                          {filteredResolvedSessions.map((session, index) => (
                             <tr
                               key={session.id}
                               className={`border-b border-slate-200 hover:bg-slate-50 transition-colors ${
-                                index === resolvedSessions.length - 1 ? "border-b-0" : ""
+                                index === filteredResolvedSessions.length - 1 ? "border-b-0" : ""
                               }`}
                             >
-                              <td className="p-3 font-medium text-slate-700">{resolvedSessions.length - index}</td>
+                              <td className="p-3 font-medium text-slate-700">{filteredResolvedSessions.length - index}</td>
                               <td className="p-3 font-mono text-sm">{session.id}</td>
                               <td className="p-3 text-slate-700">{session.started}</td>
                               <td className="p-3 text-slate-700">{session.ended}</td>
