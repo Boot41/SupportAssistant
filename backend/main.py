@@ -1204,10 +1204,11 @@ async def reassign_operator(
             raise HTTPException(status_code=404, detail="New operator not found")
 
         # Determine which date to transfer
+        print(f"To {to_operator.active_date}")
         original_date = from_operator.active_date or date.today()
 
         # Perform reassignment
-        from_operator.active_date = None
+        from_operator.active_date = to_operator.active_date
         to_operator.active_date = original_date
 
         await db.commit()
