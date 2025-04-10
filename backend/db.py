@@ -190,7 +190,8 @@ async def get_all_tickets():
                 "resolved": ticket.resolved,
                 "user_id": ticket.user_id,
                 "operator_id": ticket.op_id,
-                "operator_name": full_name if full_name else "Unassigned"
+                "operator_name": full_name if full_name else "Unassigned",
+                "conversation": []
             }
             ticket_list.append(ticket_dict)
         
@@ -222,6 +223,8 @@ async def get_ticket_with_conversations(session_id):
             "resolved": ticket.resolved,
             "user_id": ticket.user_id,
             "operator_id": ticket.op_id,
+            "operator_name": ticket.op_id,
+            "conversation": []  # Initialize the conversation list
         }
         
         for conv in conversations:
