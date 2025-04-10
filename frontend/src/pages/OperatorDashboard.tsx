@@ -633,7 +633,7 @@ export default function OperatorDashboard() {
                                 </Badge>
                               </td>
                               <td className="p-3">
-                                <Link to={`/operator/support/${session.id}`}>
+                                <Link to={`/operator/chat/${session.id}`}>
                                   <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
                                     <MessageSquare className="h-4 w-4 mr-1" />
                                     Assist
