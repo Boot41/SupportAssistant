@@ -414,9 +414,8 @@ async def mark_issue_resolved(context: RunContextWrapper[SupportContext]) -> str
             return "✅ Your issue has been marked as resolved. Thank you for contacting support!"
         
         # Update the ticket in the database
-        try:
-            # Get a database session using the dependency
-            async with get_db().__anext__() as db:
+        async with SessionLocal() as db:
+            try:
                 # Find the ticket by session_id
                 result = await db.execute(
                     select(Ticket).where(Ticket.session_id == session_id)
@@ -431,8 +430,8 @@ async def mark_issue_resolved(context: RunContextWrapper[SupportContext]) -> str
                     logger.info(f"Ticket {session_id} marked as resolved in database")
                 else:
                     logger.warning(f"Could not find ticket with session_id {session_id} to mark as resolved")
-        except Exception as db_error:
-            logger.error(f"Database error marking ticket as resolved: {str(db_error)}")
+            except Exception as db_error:
+                logger.error(f"Database error marking ticket as resolved: {str(db_error)}")
         
         return "✅ Your issue has been marked as resolved. Thank you for contacting support!"
     except Exception as e:
