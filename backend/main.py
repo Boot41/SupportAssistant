@@ -96,111 +96,6 @@ import httpx  # Using httpx for async HTTP requests
 
 WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAQAys6OFTM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=CCLGglbxyz8fMv0jdHhevoAp4VswRaakxnc9w-qRzFU"
 
-async def get_on_call_operator(db: AsyncSession):
-    today = date.today()
-
-    # Try to get operator for today
-    result = await db.execute(
-        select(OperatorSG)
-        .where(OperatorSG.active_date == today)
-        .order_by(OperatorSG.active_date.asc())
-    )
-    operator = result.scalar_one_or_none()
-    if operator:
-        return operator
-
-    # Fallback to the most recent past operator
-    result = await db.execute(
-        select(OperatorSG)
-        .where(OperatorSG.active_date <= today)
-        .order_by(OperatorSG.active_date.desc())
-    )
-    return result.scalar_one_or_none()
-
-def format_chat_message(operator):
-    return {
-        "cards": [
-            {
-                "header": {
-                    "title": "🚨 Recruit41 Notification",
-                    "subtitle": "Automated Alert System",
-                    "imageUrl": "https://www.gstatic.com/images/icons/material/system/2x/notifications_active_black_48dp.png",
-                    "imageStyle": "IMAGE"
-                },
-                "sections": [
-                    {
-                        "widgets": [
-                            {
-                                "textParagraph": {
-                                    "text": f"<b>{operator.full_name}</b> is on call today. <br>Please respond to the support request."
-                                }
-                            },
-                            {
-                                "textParagraph": {
-                                    "text": f"<i>Email:</i> {operator.email}"
-                                }
-                            },
-                            {
-                                "buttons": [
-                                    {
-                                        "textButton": {
-                                            "text": "View Dashboard",
-                                            "onClick": {
-                                                "openLink": {
-                                                    "url": "https://localhost:3000/signin"
-                                                }
-                                            }
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
-    }
-
-async def _handle_roster_notification(db: AsyncSession):
-    print("🔍 Starting notification process...")
-    try:
-        # Debug: Check if we have any operators in the database
-        result = await db.execute(select(OperatorSG))
-        all_operators = result.scalars().all()
-        print(f"📊 Found {len(all_operators)} total operators in database")
-        
-        operator = await get_on_call_operator(db)
-        if not operator:
-            print("⚠️ No on-call operator found for today or past dates")
-            # Fallback to a default message when no operator is found
-            payload = {
-                "text": "🚨 **Support Request Alert**: A user needs assistance, but no on-call operator was found in the system."
-            }
-            headers = {"Content-Type": "application/json"}
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(WEBHOOK_URL, headers=headers, json=payload)
-            print(f"Webhook response: {response.status_code} - {response.text}")
-            return "Support team has been notified, but no specific operator is on call."
-        
-        print(f"👤 Found on-call operator: {operator.full_name} ({operator.email})")
-        # If we have an operator, format the message with their details
-        payload = format_chat_message(operator)
-        headers = {"Content-Type": "application/json"}
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(WEBHOOK_URL, headers=headers, json=payload)
-        print(f"Webhook response: {response.status_code} - {response.text}")
-        if response.status_code == 200:
-            print("✅ Roster alert sent successfully.")
-            return f"Operator {operator.full_name} has been notified."
-        else:
-            print(f"❌ Failed webhook response: {response.status_code}")
-            return f"Failed to notify operator. Webhook error: {response.status_code}"
-    except Exception as e:
-        print(f"🔥 Exception occurred in notification process: {e}")
-        return f"Exception while processing notification: {e}"
-
 @function_tool(
     name_override="human_support",
     description_override="Notify the current on-call human support agent via Google Chat"
@@ -208,102 +103,132 @@ async def _handle_roster_notification(db: AsyncSession):
 async def human_support(context: RunContextWrapper[SupportContext]) -> str:
     print("🔔 Human support function called")
     print(f"Session ID from context: {context.context.session_id}")
+    
+    operator_info = None
+    
     # Try to fetch operators from database first
     try:
-        # Create a database session directly using SessionLocal
-        async with SessionLocal() as db:
-            try:
-                print("Querying database for on-call operators...")
+        # Use a simpler approach with direct SQL queries to avoid greenlet issues
+        db = SessionLocal()
+        try:
+            # Get today's date
+            today = date.today()
+            print(f"Today's date: {today}")
+            
+            # Get all operators first (for debugging)
+            stmt = select(OperatorSG)
+            result = await db.execute(stmt)
+            all_operators = result.scalars().all()
+            print(f"Found {len(all_operators)} total operators in database")
+            
+            # Find operator for today
+            stmt = select(OperatorSG).where(OperatorSG.active_date == today)
+            result = await db.execute(stmt)
+            operator = result.scalar_one_or_none()
+            
+            if operator:
+                print(f"Found operator: {operator.full_name} ({operator.email})")
+                # Save operator info to use later
+                operator_info = {
+                    "id": operator.id,
+                    "full_name": operator.full_name,
+                    "email": operator.email,
+                    "email_username": operator.email.split('@')[0]
+                }
                 
-                # Get today's date
-                today = date.today()
-                print(f"Today's date: {today}")
-                
-                # Try to get all operators first to debug
-                result = await db.execute(select(OperatorSG))
-                all_operators = result.scalars().all()
-                print(f"Found {len(all_operators)} total operators in database")
-                
-                # Try to get operator for today
-                result = await db.execute(
-                    select(OperatorSG)
-                    .where(OperatorSG.active_date == today)
-                    .order_by(OperatorSG.active_date.asc())
-                )
-                operator = result.scalar_one_or_none()
-                # print(f"Found operator for today: {operator.full_name} ({operator.email}) ({operator.id})")
-                
-                if not operator and all_operators:
-                    # Fallback to the most recent past operator
-                    print("No operator for today, trying to find most recent")
-                    result = await db.execute(
-                        select(OperatorSG)
-                        .where(OperatorSG.active_date <= today)
-                        .order_by(OperatorSG.active_date.desc())
-                    )
-                    operator = result.scalar_one_or_none()
-                
-                # Prepare notification based on operator availability
-                if operator:
-                    print(f"Found operator: {operator.full_name} ({operator.email})")
-                    print(f"Session ID from context: {context.context.session_id}")
-                    # After finding `operator` and before sending the message
-                    ticket_result = await db.execute(
-                        select(Ticket).where(Ticket.session_id == context.context.session_id)
-                    )
-                    ticket = ticket_result.scalar_one_or_none()
-
+                # Update ticket if it exists
+                if context.context.session_id:
+                    stmt = select(Ticket).where(Ticket.session_id == context.context.session_id)
+                    result = await db.execute(stmt)
+                    ticket = result.scalar_one_or_none()
+                    
                     if ticket:
-                        ticket.op_id = operator.id  # Assign the operator
+                        ticket.op_id = operator.id
                         await db.commit()
                         print(f"🔄 Ticket {ticket.session_id} updated with operator {operator.full_name}")
                     else:
                         print(f"⚠️ No ticket found for session ID: {context.context.session_id}")
-
-                    # Create a formatted card with operator details
-                    email_username = operator.email.split('@')[0]
-                    payload = {
-                        "cards": [
+            else:
+                # If no operator for today, try to find most recent
+                print("No operator for today, trying to find most recent")
+                stmt = select(OperatorSG).where(OperatorSG.active_date <= today).order_by(OperatorSG.active_date.desc())
+                result = await db.execute(stmt)
+                operator = result.scalar_one_or_none()
+                
+                if operator:
+                    print(f"Found recent operator: {operator.full_name} ({operator.email})")
+                    # Save operator info to use later
+                    operator_info = {
+                        "id": operator.id,
+                        "full_name": operator.full_name,
+                        "email": operator.email,
+                        "email_username": operator.email.split('@')[0]
+                    }
+                    
+                    # Update ticket if it exists
+                    if context.context.session_id:
+                        stmt = select(Ticket).where(Ticket.session_id == context.context.session_id)
+                        result = await db.execute(stmt)
+                        ticket = result.scalar_one_or_none()
+                        
+                        if ticket:
+                            ticket.op_id = operator.id
+                            await db.commit()
+                            print(f"🔄 Ticket {ticket.session_id} updated with operator {operator.full_name}")
+                        else:
+                            print(f"⚠️ No ticket found for session ID: {context.context.session_id}")
+        except Exception as db_error:
+            print(f"Database error: {db_error}")
+        finally:
+            await db.close()
+    except Exception as e:
+        print(f"🔥 Exception in database operations: {e}")
+    
+    # Send notification - completely separate from database operations
+    try:
+        # Create payload based on operator availability
+        if operator_info:
+            # Create a formatted card with operator details
+            payload = {
+                "cards": [
+                    {
+                        "header": {
+                            "title": "Support Request Alert",
+                            "subtitle": f"On-call: {operator_info['full_name']}",
+                            "imageUrl": "https://www.gstatic.com/images/icons/material/system/2x/support_agent_black_48dp.png",
+                            "imageStyle": "AVATAR"
+                        },
+                        "sections": [
                             {
-                                "header": {
-                                    "title": "Support Request Alert",
-                                    "subtitle": f"On-call: {operator.full_name}",
-                                    "imageUrl": "https://www.gstatic.com/images/icons/material/system/2x/support_agent_black_48dp.png",
-                                    "imageStyle": "AVATAR"
-                                },
-                                "sections": [
+                                "widgets": [
                                     {
-                                        "widgets": [
+                                        "textParagraph": {
+                                            "text": f"<users/{operator_info['email_username']}> A user is requesting assistance and you are the on-call operator today."
+                                        }
+                                    },
+                                    {
+                                        "keyValue": {
+                                            "topLabel": "Operator",
+                                            "content": operator_info['full_name']
+                                        }
+                                    },
+                                    {
+                                        "keyValue": {
+                                            "topLabel": "Email",
+                                            "content": operator_info['email']
+                                        }
+                                    },
+                                    {
+                                        "buttons": [
                                             {
-                                                "textParagraph": {
-                                                    "text": f"<users/{email_username}> A user is requesting assistance and you are the on-call operator today."
-                                                }
-                                            },
-                                            {
-                                                "keyValue": {
-                                                    "topLabel": "Operator",
-                                                    "content": operator.full_name
-                                                }
-                                            },
-                                            {
-                                                "keyValue": {
-                                                    "topLabel": "Email",
-                                                    "content": operator.email
-                                                }
-                                            },
-                                            {
-                                                "buttons": [
-                                                    {
-                                                        "textButton": {
-                                                            "text": "View Dashboard",
-                                                            "onClick": {
-                                                                "openLink": {
-                                                                    "url": "https://localhost:3000/signin"
-                                                                }
-                                                            }
+                                                "textButton": {
+                                                    "text": "View Dashboard",
+                                                    "onClick": {
+                                                        "openLink": {
+                                                            "url": "https://localhost:3000/signin"
                                                         }
                                                     }
-                                                ]
+                                                }
                                             }
                                         ]
                                     }
@@ -311,39 +236,39 @@ async def human_support(context: RunContextWrapper[SupportContext]) -> str:
                             }
                         ]
                     }
-                else:
-                    print("No operators found in database")
-                    # Fallback card when no operator is found
-                    payload = {
-                        "cards": [
+                ]
+            }
+        else:
+            print("No operators found in database")
+            # Fallback card when no operator is found
+            payload = {
+                "cards": [
+                    {
+                        "header": {
+                            "title": "Support Request",
+                            "subtitle": "No assigned operator found",
+                            "imageUrl": "https://www.gstatic.com/images/icons/material/system/2x/warning_black_48dp.png",
+                            "imageStyle": "AVATAR"
+                        },
+                        "sections": [
                             {
-                                "header": {
-                                    "title": "Support Request",
-                                    "subtitle": "No assigned operator found",
-                                    "imageUrl": "https://www.gstatic.com/images/icons/material/system/2x/warning_black_48dp.png",
-                                    "imageStyle": "AVATAR"
-                                },
-                                "sections": [
+                                "widgets": [
                                     {
-                                        "widgets": [
+                                        "textParagraph": {
+                                            "text": "A user needs immediate assistance but no on-call operator was found in the system."
+                                        }
+                                    },
+                                    {
+                                        "buttons": [
                                             {
-                                                "textParagraph": {
-                                                    "text": "A user needs immediate assistance but no on-call operator was found in the system."
-                                                }
-                                            },
-                                            {
-                                                "buttons": [
-                                                    {
-                                                        "textButton": {
-                                                            "text": "View Dashboard",
-                                                            "onClick": {
-                                                                "openLink": {
-                                                                    "url": "https://localhost:3000/signin"
-                                                                }
-                                                            }
+                                                "textButton": {
+                                                    "text": "View Dashboard",
+                                                    "onClick": {
+                                                        "openLink": {
+                                                            "url": "https://localhost:3000/signin"
                                                         }
                                                     }
-                                                ]
+                                                }
                                             }
                                         ]
                                     }
@@ -351,27 +276,28 @@ async def human_support(context: RunContextWrapper[SupportContext]) -> str:
                             }
                         ]
                     }
-                
-                # Send notification
-                headers = {"Content-Type": "application/json"}
-                
-                import requests
-                
-                response = requests.post(os.getenv('GOOGLE_CHAT_WEBHOOK_URL', WEBHOOK_URL), headers=headers, json=payload)
-                print(f"Webhook response: {response.status_code} - {response.text}")
-                
-                if response.status_code == 200:
-                    print("✅ Notification sent successfully")
-                    if operator:
-                        return f"Operator {operator.full_name} has been notified and will assist you shortly."
-                    else:
-                        return "Support team has been notified. Someone will assist you shortly."
+                ]
+            }
+        
+        # Send notification using synchronous requests in a separate context
+        headers = {"Content-Type": "application/json"}
+        
+        # Use httpx for async HTTP requests
+        async with httpx.AsyncClient() as client:
+            webhook_url = os.getenv('GOOGLE_CHAT_WEBHOOK_URL', WEBHOOK_URL)
+            response = await client.post(webhook_url, headers=headers, json=payload)
+            print(f"Webhook response: {response.status_code} - {response.text}")
+        
+            if response.status_code == 200:
+                print("✅ Notification sent successfully")
+                if operator_info:
+                    return f"Operator {operator_info['full_name']} has been notified and will assist you shortly."
                 else:
-                    print(f"❌ Failed webhook response: {response.status_code}")
-                    return "We're having trouble notifying the support team. Please try again later."
-            finally:
-                # Make sure to close the database session
-                await db.close()
+                    return "Support team has been notified. Someone will assist you shortly."
+            else:
+                print(f"❌ Failed webhook response: {response.status_code}")
+                return "We're having trouble notifying the support team. Please try again later."
+                
     except Exception as e:
         print(f"🔥 Exception in notification process: {e}")
         
@@ -383,15 +309,17 @@ async def human_support(context: RunContextWrapper[SupportContext]) -> str:
             }
             headers = {"Content-Type": "application/json"}
             
-            import requests
-            response = requests.post(os.getenv('GOOGLE_CHAT_WEBHOOK_URL', WEBHOOK_URL), headers=headers, json=payload)
-            print(f"Fallback webhook response: {response.status_code} - {response.text}")
-            
-            if response.status_code == 200:
-                print("✅ Fallback notification sent successfully")
-                return "Support team has been notified despite database issues. Someone will assist you shortly."
-            else:
-                return "We're having trouble notifying the support team. Please try again later."
+            # Use httpx for async HTTP requests
+            async with httpx.AsyncClient() as client:
+                webhook_url = os.getenv('GOOGLE_CHAT_WEBHOOK_URL', WEBHOOK_URL)
+                response = await client.post(webhook_url, headers=headers, json=payload)
+                print(f"Fallback webhook response: {response.status_code} - {response.text}")
+                
+                if response.status_code == 200:
+                    print("✅ Fallback notification sent successfully")
+                    return "Support team has been notified despite database issues. Someone will assist you shortly."
+                else:
+                    return "We're having trouble notifying the support team. Please try again later."
         except Exception as fallback_error:
             print(f"🔥 Exception in fallback notification: {fallback_error}")
             return "An error occurred while trying to contact support. Please try again later."
