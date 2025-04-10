@@ -316,7 +316,7 @@ export default function OperatorDashboard() {
     {
       label: "Today's Agent",
       value: Today?.operator?.name || "",
-      secondaryValue: "Available until 5:00 PM",
+      // secondaryValue: "Available until 5:00 PM",
       icon: Users,
       color: "bg-violet-100 text-violet-700",
       trend: `${myAssignedSessions.length} sessions in progress`,
@@ -369,7 +369,6 @@ export default function OperatorDashboard() {
                       <p className="text-sm font-medium text-slate-500 mb-1">{stat.label}</p>
                       <div className="flex items-baseline gap-2">
                         <p className="text-2xl font-bold text-slate-800">{stat.value}</p>
-                        {stat.secondaryValue && <p className="text-xs text-slate-600">{stat.secondaryValue}</p>}
                       </div>
                       {stat.trend && (
                         <p className="text-xs font-medium mt-2 inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100">
