@@ -21,7 +21,6 @@ export default function SignIn() {
   const login = useGoogleLogin({
     scope: 'openid profile email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
     flow: 'auth-code',
-    // clientId: '274055029862-30ju5vqba01in57ftvv1i0n6mi6loo7d.apps.googleusercontent.com',
     onSuccess: async (codeResponse) => {
       try {
         const res = await axios.post('http://localhost:8000/auth', {
