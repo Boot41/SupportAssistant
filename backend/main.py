@@ -65,7 +65,7 @@ class SupportContext(BaseModel):
     user_id: Optional[str] = None
     interview_id: Optional[str] = None
     transcript_found: Optional[bool] = None
-    session_id: Optional[str] = None
+    ticket_id: Optional[str] = None
     issue_resolved: Optional[bool] = None
 
 # ----------------------
@@ -102,7 +102,7 @@ WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAQAys6OFTM/messages?key=AI
 )
 async def human_support(context: RunContextWrapper[SupportContext]) -> str:
     print("🔔 Human support function called")
-    print(f"Session ID from context: {context.context.session_id}")
+    print(f"Ticket ID from context: {context.context.ticket_id}")
     
     operator_info = None
     
@@ -137,17 +137,17 @@ async def human_support(context: RunContextWrapper[SupportContext]) -> str:
                 }
                 
                 # Update ticket if it exists
-                if context.context.session_id:
-                    stmt = select(Ticket).where(Ticket.session_id == context.context.session_id)
+                if context.context.ticket_id:
+                    stmt = select(Ticket).where(Ticket.ticket_id == context.context.ticket_id)
                     result = await db.execute(stmt)
                     ticket = result.scalar_one_or_none()
                     
                     if ticket:
                         ticket.op_id = operator.id
                         await db.commit()
-                        print(f"🔄 Ticket {ticket.session_id} updated with operator {operator.full_name}")
+                        print(f"🔄 Ticket {ticket.ticket_id} updated with operator {operator.full_name}")
                     else:
-                        print(f"⚠️ No ticket found for session ID: {context.context.session_id}")
+                        print(f"⚠️ No ticket found for ticket ID: {context.context.ticket_id}")
             else:
                 # If no operator for today, try to find most recent
                 print("No operator for today, trying to find most recent")
@@ -166,17 +166,17 @@ async def human_support(context: RunContextWrapper[SupportContext]) -> str:
                     }
                     
                     # Update ticket if it exists
-                    if context.context.session_id:
-                        stmt = select(Ticket).where(Ticket.session_id == context.context.session_id)
+                    if context.context.ticket_id:
+                        stmt = select(Ticket).where(Ticket.ticket_id == context.context.ticket_id)
                         result = await db.execute(stmt)
                         ticket = result.scalar_one_or_none()
                         
                         if ticket:
                             ticket.op_id = operator.id
                             await db.commit()
-                            print(f"🔄 Ticket {ticket.session_id} updated with operator {operator.full_name}")
+                            print(f"🔄 Ticket {ticket.ticket_id} updated with operator {operator.full_name}")
                         else:
-                            print(f"⚠️ No ticket found for session ID: {context.context.session_id}")
+                            print(f"⚠️ No ticket found for ticket ID: {context.context.ticket_id}")
         except Exception as db_error:
             print(f"Database error: {db_error}")
         finally:
@@ -326,27 +326,27 @@ async def human_support(context: RunContextWrapper[SupportContext]) -> str:
 
 @function_tool(
     name_override="mark_issue_resolved",
-    description_override="Mark the user's issue as resolved and close the support session"
+    description_override="Mark the user's issue as resolved and close the support ticket"
 )
 async def mark_issue_resolved(context: RunContextWrapper[SupportContext]) -> str:
     try:
         # Mark the issue as resolved in the context
         context.context.issue_resolved = True
         
-        # Get the session ID from the context
-        session_id = context.context.session_id
-        print(f"Session ID: {session_id}")
-        # Check if session_id is None or empty
-        if not session_id:
-            logger.warning("No session_id found in context, cannot update ticket in database")
+        # Get the ticket ID from the context
+        ticket_id = context.context.ticket_id
+        print(f"Ticket ID: {ticket_id}")
+        # Check if ticket_id is None or empty
+        if not ticket_id:
+            logger.warning("No ticket_id found in context, cannot update ticket in database")
             return "✅ Your issue has been marked as resolved. Thank you for contacting support!"
         
         # Update the ticket in the database
         async with SessionLocal() as db:
             try:
-                # Find the ticket by session_id
+                # Find the ticket by ticket_id
                 result = await db.execute(
-                    select(Ticket).where(Ticket.session_id == session_id)
+                    select(Ticket).where(Ticket.ticket_id == ticket_id)
                 )
                 ticket = result.scalar_one_or_none()
                 
@@ -355,9 +355,9 @@ async def mark_issue_resolved(context: RunContextWrapper[SupportContext]) -> str
                     ticket.resolved = True
                     ticket.ended_at = datetime.now(timezone.utc)
                     await db.commit()
-                    logger.info(f"Ticket {session_id} marked as resolved in database")
+                    logger.info(f"Ticket {ticket_id} marked as resolved in database")
                 else:
-                    logger.warning(f"Could not find ticket with session_id {session_id} to mark as resolved")
+                    logger.warning(f"Could not find ticket with ticket_id {ticket_id} to mark as resolved")
             except Exception as db_error:
                 logger.error(f"Database error marking ticket as resolved: {str(db_error)}")
         
@@ -554,12 +554,12 @@ marketing_agent.handoffs.append(triage_agent)
 
 
 # # Handle the case where issue is resolved
-# async def handle_resolved_issue(session_id: str, resolved: bool):
+# async def handle_resolved_issue(ticket_id: str, resolved: bool):
 #     if resolved:
 #         # Return to Triage agent for confirmation
-#         await triage_agent.handoffs[0].run(context=session_id)
+#         await triage_agent.handoffs[0].run(context=ticket_id)
 #     else:
-#         await triage_agent.handoffs[1].run(context=session_id)  # Human support if unresolved
+#         await triage_agent.handoffs[1].run(context=ticket_id)  # Human support if unresolved
 
 
 
@@ -572,13 +572,13 @@ class ConnectionManager:
         self.operator_connections: Dict[str, WebSocket] = {}
         self.session_data: Dict[str, Dict[str, Any]] = {}
 
-    async def connect(self, websocket: WebSocket, session_id: str):
+    async def connect(self, websocket: WebSocket, ticket_id: str):
         await websocket.accept()
-        self.active_connections[session_id] = websocket
+        self.active_connections[ticket_id] = websocket
         context = SupportContext()
-        context.session_id = session_id  # Set the session_id in the context
+        context.ticket_id = ticket_id  # Set the ticket_id in the context
         
-        self.session_data[session_id] = {
+        self.session_data[ticket_id] = {
             "current_agent": triage_agent,
             "input_items": [],
             "context": context,
@@ -589,59 +589,59 @@ class ConnectionManager:
             "resolved": False
         }
 
-    async def connect_operator(self, websocket: WebSocket, session_id: str):
+    async def connect_operator(self, websocket: WebSocket, ticket_id: str):
         await websocket.accept()
-        self.operator_connections[session_id] = websocket
+        self.operator_connections[ticket_id] = websocket
 
-    def disconnect(self, session_id: str):
-        self.active_connections.pop(session_id, None)
-        self.operator_connections.pop(session_id, None)
-        self.session_data.pop(session_id, None)
+    def disconnect(self, ticket_id: str):
+        self.active_connections.pop(ticket_id, None)
+        self.operator_connections.pop(ticket_id, None)
+        self.session_data.pop(ticket_id, None)
 
-    async def send_message(self, session_id: str, message: Dict[str, Any]):
-        if session_id in self.active_connections:
-            await self.active_connections[session_id].send_json(message)
+    async def send_message(self, ticket_id: str, message: Dict[str, Any]):
+        if ticket_id in self.active_connections:
+            await self.active_connections[ticket_id].send_json(message)
 
-    async def send_to_operator(self, session_id: str, trace_event: Dict[str, Any]):
-        if session_id in self.operator_connections:
-            await self.operator_connections[session_id].send_json({
+    async def send_to_operator(self, ticket_id: str, trace_event: Dict[str, Any]):
+        if ticket_id in self.operator_connections:
+            await self.operator_connections[ticket_id].send_json({
                 "type": "trace_event",
                 "trace": trace_event
             })
 
 manager = ConnectionManager()
 
-async def log_trace_event(session_id: str, event: Dict[str, Any]):
+async def log_trace_event(ticket_id: str, event: Dict[str, Any]):
     # Add default flags to event if not present
     if "flags" not in event:
         event["flags"] = {
-            "ai_active": not manager.session_data[session_id].get("human_override", False),
-            "human_override": manager.session_data[session_id].get("human_override", False)
+            "ai_active": not manager.session_data[ticket_id].get("human_override", False),
+            "human_override": manager.session_data[ticket_id].get("human_override", False)
         }
     if "flagged" not in event:
         event["flagged"] = False
     
     # Use PostgreSQL insert function instead of MongoDB
-    await insert_conversation_event(session_id, event)
+    await insert_conversation_event(ticket_id, event)
 
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
+@app.websocket("/ws/{ticket_id}")
+async def websocket_endpoint(websocket: WebSocket, ticket_id: str):
     # Check if session already exists before creating a new one
-    if session_id not in manager.session_data:
-        await manager.connect(websocket, session_id)
+    if ticket_id not in manager.session_data:
+        await manager.connect(websocket, ticket_id)
     else:
         # If session exists, just update the websocket connection
         await websocket.accept()
-        manager.active_connections[session_id] = websocket
+        manager.active_connections[ticket_id] = websocket
     
     try:
         while True:
             data = await websocket.receive_json()
             user_message = data.get("message", "")
-            session_data = manager.session_data[session_id]
+            session_data = manager.session_data[ticket_id]
 
             if session_data.get("human_override"):
-                await manager.send_to_operator(session_id, {
+                await manager.send_to_operator(ticket_id, {
                     "turn_id": session_data["turn_id"],
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "role": "user",
@@ -649,7 +649,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 })
                 
                 # Log user message to PostgreSQL
-                await log_trace_event(session_id, {
+                await log_trace_event(ticket_id, {
                     "turn_id": session_data["turn_id"],
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                     "role": "user",
@@ -665,14 +665,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
             input_items.append({"role": "user", "content": user_message})
 
-            await log_trace_event(session_id, {
+            await log_trace_event(ticket_id, {
                 "turn_id": session_data["turn_id"],
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "role": "user",
                 "content": user_message
             })
 
-            await manager.send_to_operator(session_id, {
+            await manager.send_to_operator(ticket_id, {
                 "turn_id": session_data["turn_id"],
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "role": "user",
@@ -683,7 +683,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
             # Only process AI response if human_override is not enabled
             if not session_data.get("human_override"):
-                with trace("Support Session", group_id=session_id):
+                with trace("Support Session", group_id=ticket_id):
                     result = await Runner.run(current_agent, input_items, context=context)
 
                     for item in result.new_items:
@@ -698,9 +698,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                                 "agent": agent_name,
                                 "content": message_text
                             }
-                            await log_trace_event(session_id, event)
-                            await manager.send_to_operator(session_id, event)
-                            await manager.send_message(session_id, {
+                            await log_trace_event(ticket_id, event)
+                            await manager.send_to_operator(ticket_id, event)
+                            await manager.send_message(ticket_id, {
                                 "type": "message",
                                 "agent": agent_name,
                                 "content": message_text
@@ -715,7 +715,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                             tool_args = getattr(item.raw_item, "args", str(item.raw_item))  # Extract args or handle complex objects
     
                             # Log the event with tool name, args, and output
-                            await log_trace_event(session_id, {
+                            await log_trace_event(ticket_id, {
                                 "turn_id": session_data["turn_id"],
                                 "timestamp": datetime.utcnow().isoformat() + "Z",
                                 "role": "agent",
@@ -739,9 +739,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                                 },
                                 "content": f"[Handoff] {item.source_agent.name} → {item.target_agent.name}"
                             }
-                            await log_trace_event(session_id, handoff_event)
-                            await manager.send_to_operator(session_id, handoff_event)
-                            await manager.send_message(session_id, {
+                            await log_trace_event(ticket_id, handoff_event)
+                            await manager.send_to_operator(ticket_id, handoff_event)
+                            await manager.send_message(ticket_id, {
                                 "type": "handoff",
                                 "source": item.source_agent.name,
                                 "target": item.target_agent.name
@@ -752,106 +752,105 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     session_data["turn_id"] += 1
 
     except WebSocketDisconnect:
-        session_data = manager.session_data.get(session_id, {})
+        session_data = manager.session_data.get(ticket_id, {})
         # Update ticket end time in PostgreSQL
-        await update_ticket_end_time(session_id)
+        await update_ticket_end_time(ticket_id)
         # Only remove the websocket connection, not the entire session data
-        if session_id in manager.active_connections:
-            manager.active_connections.pop(session_id, None)
+        if ticket_id in manager.active_connections:
+            manager.active_connections.pop(ticket_id, None)
 
-@app.websocket("/operator/{session_id}")
-async def operator_ws(websocket: WebSocket, session_id: str):
-    await manager.connect_operator(websocket, session_id)
+@app.websocket("/operator/{ticket_id}")
+async def operator_ws(websocket: WebSocket, ticket_id: str):
+    await manager.connect_operator(websocket, ticket_id)
     try:
         while True:
             data = await websocket.receive_json()
             content = data.get("message")
             if content:
-                await manager.send_message(session_id, {
+                await manager.send_message(ticket_id, {
                     "type": "message",
                     "agent": "HumanSupport",
                     "content": content
                 })
-                await log_trace_event(session_id, {
-                    "turn_id": manager.session_data[session_id]["turn_id"],
+                await log_trace_event(ticket_id, {
+                    "turn_id": manager.session_data[ticket_id]["turn_id"],
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                     "role": "agent",
                     "agent": "HumanSupport",
                     "content": content
                 })
-                manager.session_data[session_id]["turn_id"] += 1
+                manager.session_data[ticket_id]["turn_id"] += 1
     except WebSocketDisconnect:
-        manager.operator_connections.pop(session_id, None)
+        manager.operator_connections.pop(ticket_id, None)
 
 @app.get("/")
 async def root():
     return {"message": "Support Assistant API is running"}
 
-@app.get("/generate-session-id")
-async def generate_session_id():
-    return {"session_id": uuid.uuid4().hex[:12]}
+@app.get("/generate-ticket-id")
+async def generate_ticket_id():
+    return {"ticket_id": uuid.uuid4().hex[:12]}
 
-@app.post("/override/{session_id}")
-async def override_session(session_id: str):
-    if session_id in manager.session_data:
-        manager.session_data[session_id]["human_override"] = True
+@app.post("/override/{ticket_id}")
+async def override_ticket(ticket_id: str):
+    if ticket_id in manager.session_data:
+        manager.session_data[ticket_id]["human_override"] = True
         
         # Log the human override event
-        await log_trace_event(session_id, {
-            "turn_id": manager.session_data[session_id]["turn_id"],
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "role": "system",
+        await log_trace_event(ticket_id, {
+            "turn_id": manager.session_data[ticket_id]["turn_id"],
+            "type": "system",
             "content": "Human support has taken over this conversation."
         })
         
         # Notify the client that human support has taken over
-        await manager.send_message(session_id, {
+        await manager.send_message(ticket_id, {
             "type": "system",
             "content": "A human support agent has joined the conversation."
         })
         
-        return {"message": "Human override enabled for this session."}
-    return {"error": "Session not found."}
+        return {"message": "Human override enabled for this ticket."}
+    return {"error": "Ticket not found."}
 
-@app.post("/resolve/{session_id}")
-async def resolve_session(session_id: str):
-    if session_id in manager.session_data:
+@app.post("/resolve/{ticket_id}")
+async def resolve_ticket(ticket_id: str):
+    if ticket_id in manager.session_data:
         # Update the resolved status in PostgreSQL
-        await toggle_ticket_resolved(session_id)
-        return {"message": "Session marked as resolved."}
-    return {"error": "Session not found."}
+        await toggle_ticket_resolved(ticket_id)
+        return {"message": "Ticket marked as resolved."}
+    return {"error": "Ticket not found."}
 
-@app.get("/sessions")
-async def get_sessions():
-    """Get all sessions from the database."""
-    sessions = await get_all_tickets()
-    # print(sessions)
-    return sessions
+@app.get("/tickets")
+async def get_tickets():
+    """Get all tickets from the database."""
+    tickets = await get_all_tickets()
+    # print(tickets)
+    return tickets
 
-@app.get("/sessions/{session_id}")
-async def get_session(session_id: str):
-    """Get a specific session with its conversation history."""
-    session = await get_ticket_with_conversations(session_id)
+@app.get("/tickets/{ticket_id}")
+async def get_ticket(ticket_id: str):
+    """Get a specific ticket with its conversation history."""
+    ticket = await get_ticket_with_conversations(ticket_id)
     
-    if not session:
-        return {"error": "Session not found"}
+    if not ticket:
+        return {"error": "Ticket not found"}
     
-    return session
+    return ticket
 
-@app.post("/sessions/{session_id}/flag/{turn_id}")
-async def toggle_flag(session_id: str, turn_id: int):
+@app.post("/tickets/{ticket_id}/flag/{turn_id}")
+async def toggle_flag(ticket_id: str, turn_id: int):
     """Toggle the flagged status for a specific message in a conversation."""
-    new_flagged_status = await toggle_conversation_flag(session_id, turn_id)
+    new_flagged_status = await toggle_conversation_flag(ticket_id, turn_id)
     
     if new_flagged_status is not None:
         return {"message": f"Message flagged status toggled to {new_flagged_status}"}
     
     return {"error": "Message not found"}
 
-@app.post("/sessions/{session_id}/toggle-resolve")
-async def toggle_resolve(session_id: str):
+@app.post("/tickets/{ticket_id}/toggle-resolve")
+async def toggle_resolve(ticket_id: str):
     """Toggle the resolved status for a session."""
-    new_resolved_status = await toggle_ticket_resolved(session_id)
+    new_resolved_status = await toggle_ticket_resolved(ticket_id)
     
     if new_resolved_status is not None:
         return {"message": f"Session resolved status toggled to {new_resolved_status}"}
@@ -1010,12 +1009,12 @@ async def ticket_transfer_notification(
     {
         "from": "sender@email.com",
         "to": "recipient@email.com",
-        "sessionId": "unique_session_id"
+        "ticketId": "unique_ticket_id"
     }
     """
     try:
         # Validate input
-        if not all(key in transfer_data for key in ['from', 'to', 'sessionId']):
+        if not all(key in transfer_data for key in ['from', 'to', 'ticketId']):
             raise HTTPException(status_code=400, detail="Missing required fields")
         
         # Query OperatorSG to get full names
@@ -1049,7 +1048,7 @@ async def ticket_transfer_notification(
                             "widgets": [
                                 {
                                     "textParagraph": {
-                                        "text": f"<users/{from_username}> {from_operator.full_name} is requesting assistance from <users/{to_username}> {to_operator.full_name} for the ticket: {transfer_data['sessionId']}"
+                                        "text": f"<users/{from_username}> {from_operator.full_name} is requesting assistance from <users/{to_username}> {to_operator.full_name} for the ticket: {transfer_data['ticketId']}"
                                     }
                                 }
                             ]

@@ -261,7 +261,7 @@ export default function OperatorDashboard() {
     const fetchSessions = async () => {
       try {
         setIsRefreshing(true);
-        const response = await fetch('http://localhost:8001/sessions');
+        const response = await fetch('http://localhost:8001/tickets');
         if (!response.ok) {
           throw new Error('Failed to fetch sessions');
         }

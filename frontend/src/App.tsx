@@ -4,7 +4,7 @@ import './App.css';
 import ChatMessage from './components/ChatMessage.jsx';
 import ChatInput from './components/ChatInput.jsx';
 import OperatorDashboard from './pages/OperatorDashboard.tsx';
-import SessionView from './pages/SessionView.tsx';
+import TicketView from './pages/TicketView';
 import OperatorChat from './pages/OperatorChat.tsx';
 import SignIn from './components/SignIn.tsx';
 import { GoogleOAuthProvider } from '@react-oauth/google';
@@ -16,16 +16,16 @@ interface Message {
   agent?: string;
 }
 
-interface SessionData {
-  session_id: string;
+interface TicketData {
+  ticket_id: string;
 }
 
 function UserChat() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [ticketId, setSessionId] = useState<string | null>(null);
   const [connected, setConnected] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
-  const [sessionInitialized, setSessionInitialized] = useState<boolean>(false);
+  const [ticketInitialized, setSessionInitialized] = useState<boolean>(false);
   const webSocketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -38,19 +38,19 @@ function UserChat() {
     scrollToBottom();
   }, [messages]);
 
-  // Initialize session ID but don't connect to WebSocket yet
+  // Initialize ticket ID but don't connect to WebSocket yet
   useEffect(() => {
-    const getSessionId = async () => {
+    const getTicketId = async () => {
       try {
-        const response = await fetch('http://localhost:8001/generate-session-id');
-        const data: SessionData = await response.json();
-        setSessionId(data.session_id);
+        const response = await fetch('http://localhost:8001/generate-ticket-id');
+        const data: TicketData = await response.json();
+        setSessionId(data.ticket_id);
       } catch (error) {
-        console.error('Error getting session ID:', error);
+        console.error('Error getting ticket ID:', error);
       }
     };
     
-    getSessionId();
+    getTicketId();
     
     return () => {
       if (webSocketRef.current) {
@@ -61,11 +61,11 @@ function UserChat() {
 
   // Initialize WebSocket connection only when user sends first message
   const initializeWebSocket = (messageToSend: string) => {
-    if (sessionInitialized || !sessionId) return;
+    if (ticketInitialized || !ticketId) return;
     
     setLoading(true);
     
-    const ws = new WebSocket(`ws://localhost:8001/ws/${sessionId}`);
+    const ws = new WebSocket(`ws://localhost:8001/ws/${ticketId}`);
     
     ws.onopen = () => {
       console.log('WebSocket connected');
@@ -113,8 +113,8 @@ function UserChat() {
   };
 
   const sendMessage = (message: string) => {
-    if (!sessionId) {
-      console.error('No session ID available');
+    if (!ticketId) {
+      console.error('No ticket ID available');
       return;
     }
     
@@ -125,7 +125,7 @@ function UserChat() {
     
     setLoading(true);
     
-    if (!sessionInitialized) {
+    if (!ticketInitialized) {
       initializeWebSocket(message);
       return;
     }
@@ -191,8 +191,8 @@ function App() {
           <Route path="/" element={<UserChat />} />
           <Route path="/signin" element={<SignIn />} />
           <Route path="/operator" element={<OperatorDashboard />} />
-          <Route path="/operator/view/:sessionId" element={<SessionView />} />
-          <Route path="/operator/chat/:sessionId" element={<OperatorChat />} />
+          <Route path="/operator/view/:ticketId" element={<TicketView />} />
+          <Route path="/operator/chat/:ticketId" element={<OperatorChat />} />
         </Routes>
       </Router>
     </GoogleOAuthProvider>

@@ -60,7 +60,7 @@ interface OperatorsResponse {
   total_count: number;
 }
 
-export default function OperatorSessionDetails() {
+export default function OperatorTicketDetails() {
   const { ticketId } = useParams<{ ticketId: string }>()
   const [ticketData, setTicketData] = useState<TicketData | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
@@ -101,7 +101,7 @@ export default function OperatorSessionDetails() {
   ]
 
   useEffect(() => {
-    const fetchSession = async () => {
+    const fetchTicket = async () => {
       if (!ticketId) return
 
       try {
@@ -186,7 +186,7 @@ export default function OperatorSessionDetails() {
       })
     }
 
-    fetchSession()
+    fetchTicket()
   }, [ticketId])
 
   useEffect(() => {
@@ -358,7 +358,7 @@ export default function OperatorSessionDetails() {
         <Card className="border-0 shadow-lg mb-6">
           <CardHeader className="bg-gradient-to-r from-indigo-700 to-indigo-900 text-white p-4 flex flex-row items-center justify-between">
             <div>
-              <CardTitle className="text-xl font-bold">Session: {ticketId}</CardTitle>
+              <CardTitle className="text-xl font-bold">Ticket: {ticketId}</CardTitle>
               <div className="flex flex-wrap gap-x-6 gap-y-2 mt-2 text-sm text-indigo-100">
                 <div className="flex items-center">
                   <Clock className="h-4 w-4 mr-1" />
@@ -593,13 +593,13 @@ export default function OperatorSessionDetails() {
                 <div>
                   <Card className="border border-slate-200 shadow-sm mt-6">
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-lg font-semibold">Session Details</CardTitle>
+                      <CardTitle className="text-lg font-semibold">Ticket Details</CardTitle>
                     </CardHeader>
 
                     <CardContent>
                       <div className="space-y-4">
                         <div>
-                          <p className="text-sm text-slate-500">Session ID</p>
+                          <p className="text-sm text-slate-500">Ticket ID</p>
                           <p className="font-mono text-sm">{ticketId}</p>
                         </div>
                         <div>

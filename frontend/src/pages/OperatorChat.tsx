@@ -14,7 +14,7 @@ interface Message {
   timestamp?: string;
 }
 
-interface SessionData {
+interface TicketData {
   id: string;
   started_at: string;
   ended_at?: string;
@@ -23,11 +23,11 @@ interface SessionData {
 }
 
 export default function OperatorSupportSession() {
-  const { sessionId } = useParams<{ sessionId: string }>();
+  const { ticketId } = useParams<{ ticketId: string }>();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isResolved, setIsResolved] = useState(false);
-  const [session, setSession] = useState<SessionData | null>(null);
+  const [session, setSession] = useState<TicketData | null>(null);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,13 +46,13 @@ export default function OperatorSupportSession() {
   // Fetch session data and conversation history
   useEffect(() => {
     const fetchSession = async () => {
-      if (!sessionId) {
-        setError("Session ID not found");
+      if (!ticketId) {
+        setError("Ticket ID not found");
         return;
       }
 
       try {
-        const response = await fetch(`http://localhost:8001/sessions/${sessionId}`);
+        const response = await fetch(`http://localhost:8001/tickets/${ticketId}`);
         if (!response.ok) {
           throw new Error('Failed to fetch session data');
         }
@@ -87,8 +87,8 @@ export default function OperatorSupportSession() {
         
         setMessages(formattedMessages);
       } catch (err) {
-        console.error("Error fetching session:", err);
-        setError("Failed to load session data");
+        console.error("Error fetching ticket:", err);
+        setError("Failed to load ticket data");
         
         // Fallback to dummy data
         setMessages([
@@ -115,21 +115,21 @@ export default function OperatorSupportSession() {
     };
 
     fetchSession();
-  }, [sessionId]);
+  }, [ticketId]);
 
   // Connect to WebSocket for operator
   useEffect(() => {
     const connectToWebSocket = () => {
       try {
-        // Connect to operator WebSocket with the session ID
-        const ws = new WebSocket(`ws://localhost:8001/operator/${sessionId}`);
+        // Connect to operator WebSocket with the ticket ID
+        const ws = new WebSocket(`ws://localhost:8001/operator/${ticketId}`);
         
         ws.onopen = () => {
           console.log('Operator WebSocket connected');
           setConnected(true);
           
           // Enable human override
-          fetch(`http://localhost:8001/override/${sessionId}`, {
+          fetch(`http://localhost:8001/override/${ticketId}`, {
             method: 'POST'
           }).then(response => {
             if (!response.ok) {
@@ -183,7 +183,7 @@ export default function OperatorSupportSession() {
       }
     };
     
-    if (sessionId && !isResolved) {
+    if (ticketId && !isResolved) {
       connectToWebSocket();
     }
     
@@ -193,7 +193,7 @@ export default function OperatorSupportSession() {
         webSocketRef.current.close();
       }
     };
-  }, [sessionId, isResolved]);
+  }, [ticketId, isResolved]);
 
   const handleSendMessage = () => {
     if (newMessage.trim() === "") return;
@@ -228,17 +228,17 @@ export default function OperatorSupportSession() {
   };
 
   const handleResolveChat = async () => {
-    if (!sessionId) return;
+    if (!ticketId) return;
 
     try {
-      const response = await fetch(`http://localhost:8001/sessions/${sessionId}/toggle-resolve`, {
+      const response = await fetch(`http://localhost:8001/tickets/${ticketId}/toggle-resolve`, {
         method: 'POST',
       });
 
       if (response.ok) {
         const resolvedMessage: Message = {
           role: 'system',
-          content: "This session has been marked as resolved. The chat is now closed.",
+          content: "This ticket has been marked as resolved. The chat is now closed.",
           timestamp: new Date().toLocaleString()
         };
 
@@ -308,7 +308,7 @@ export default function OperatorSupportSession() {
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
-                  Session <span className="text-indigo-600">{sessionId}</span>
+                  Session <span className="text-indigo-600">{ticketId}</span>
                 </h2>
                 <div className="flex items-center text-xs text-slate-500">
                   <Clock className="h-3 w-3 mr-1" />
@@ -388,7 +388,7 @@ export default function OperatorSupportSession() {
           <div className="p-4 border-t border-slate-100 bg-white">
             {isResolved ? (
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-center">
-                <p className="text-sm text-slate-600">This session has been resolved and is now closed</p>
+                <p className="text-sm text-slate-600">This ticket has been resolved and is now closed</p>
                 <Badge className="mt-1 bg-emerald-100 text-emerald-800">Resolved</Badge>
               </div>
             ) : (
