@@ -26,7 +26,7 @@ This is the backend API for the Support Assistant chatbot application. It uses F
    python main.py
    ```
 
-The server will start on http://localhost:8000.
+The server will start on http://localhost:8001.
 
 ## API Endpoints
 

@@ -23,7 +23,7 @@ export default function SignIn() {
     flow: 'auth-code',
     onSuccess: async (codeResponse) => {
       try {
-        const res = await axios.post('http://localhost:8000/auth', {
+        const res = await axios.post('http://localhost:8001/auth', {
           code: codeResponse.code,
           redirect_uri: 'http://localhost:3000'
         });

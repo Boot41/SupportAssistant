@@ -42,7 +42,7 @@ function UserChat() {
   useEffect(() => {
     const getSessionId = async () => {
       try {
-        const response = await fetch('http://localhost:8000/generate-session-id');
+        const response = await fetch('http://localhost:8001/generate-session-id');
         const data: SessionData = await response.json();
         setSessionId(data.session_id);
       } catch (error) {
@@ -65,7 +65,7 @@ function UserChat() {
     
     setLoading(true);
     
-    const ws = new WebSocket(`ws://localhost:8000/ws/${sessionId}`);
+    const ws = new WebSocket(`ws://localhost:8001/ws/${sessionId}`);
     
     ws.onopen = () => {
       console.log('WebSocket connected');

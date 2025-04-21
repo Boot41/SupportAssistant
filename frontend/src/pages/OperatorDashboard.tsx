@@ -176,7 +176,7 @@ export default function OperatorDashboard() {
     // Fetch agent schedule data
     const fetchAgentSchedule = async () => {
       try {
-        const response = await fetch('http://localhost:8000/agent-schedule');
+        const response = await fetch('http://localhost:8001/agent-schedule');
         if (!response.ok) {
           throw new Error('Failed to fetch agent schedule');
         }
@@ -195,7 +195,7 @@ export default function OperatorDashboard() {
   useEffect(() => {
     const fetchOperators = async () => {
       try {
-        const response = await fetch('http://localhost:8000/operators');
+        const response = await fetch('http://localhost:8001/operators');
         if (!response.ok) {
           throw new Error('Failed to fetch operators');
         }
@@ -219,7 +219,7 @@ export default function OperatorDashboard() {
       const day = agentSchedule.days[dayIndex];
       
       // Call the ticket-transfer API
-      const response = await fetch('http://localhost:8000/reassign-operator', {
+      const response = await fetch('http://localhost:8001/reassign-operator', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -261,7 +261,7 @@ export default function OperatorDashboard() {
     const fetchSessions = async () => {
       try {
         setIsRefreshing(true);
-        const response = await fetch('http://localhost:8000/sessions');
+        const response = await fetch('http://localhost:8001/sessions');
         if (!response.ok) {
           throw new Error('Failed to fetch sessions');
         }

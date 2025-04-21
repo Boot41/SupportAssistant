@@ -52,7 +52,7 @@ export default function OperatorSupportSession() {
       }
 
       try {
-        const response = await fetch(`http://localhost:8000/sessions/${sessionId}`);
+        const response = await fetch(`http://localhost:8001/sessions/${sessionId}`);
         if (!response.ok) {
           throw new Error('Failed to fetch session data');
         }
@@ -122,14 +122,14 @@ export default function OperatorSupportSession() {
     const connectToWebSocket = () => {
       try {
         // Connect to operator WebSocket with the session ID
-        const ws = new WebSocket(`ws://localhost:8000/operator/${sessionId}`);
+        const ws = new WebSocket(`ws://localhost:8001/operator/${sessionId}`);
         
         ws.onopen = () => {
           console.log('Operator WebSocket connected');
           setConnected(true);
           
           // Enable human override
-          fetch(`http://localhost:8000/override/${sessionId}`, {
+          fetch(`http://localhost:8001/override/${sessionId}`, {
             method: 'POST'
           }).then(response => {
             if (!response.ok) {
@@ -231,7 +231,7 @@ export default function OperatorSupportSession() {
     if (!sessionId) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/sessions/${sessionId}/toggle-resolve`, {
+      const response = await fetch(`http://localhost:8001/sessions/${sessionId}/toggle-resolve`, {
         method: 'POST',
       });
 

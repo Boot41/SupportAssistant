@@ -76,7 +76,7 @@ export default function OperatorSessionDetails() {
     // Fetch agent schedule data
     const fetchAgentSchedule = async () => {
       try {
-        const response = await fetch('http://localhost:8000/operators');
+        const response = await fetch('http://localhost:8001/operators');
         if (!response.ok) {
           throw new Error('Failed to fetch agent schedule');
         }
@@ -106,7 +106,7 @@ export default function OperatorSessionDetails() {
 
       try {
         // First try to fetch from API
-        const response = await fetch(`http://localhost:8000/sessions/${sessionId}`)
+        const response = await fetch(`http://localhost:8001/sessions/${sessionId}`)
 
         if (response.ok) {
           const data = await response.json()
@@ -215,7 +215,7 @@ export default function OperatorSessionDetails() {
 
     try {
       // Try to call API
-      const response = await fetch(`http://localhost:8000/sessions/${sessionId}/flag/${turnId}`, {
+      const response = await fetch(`http://localhost:8001/sessions/${sessionId}/flag/${turnId}`, {
         method: 'POST',
       })
 
@@ -242,7 +242,7 @@ export default function OperatorSessionDetails() {
 
     try {
       // Try to call API
-      const response = await fetch(`http://localhost:8000/sessions/${sessionId}/toggle-resolve`, {
+      const response = await fetch(`http://localhost:8001/sessions/${sessionId}/toggle-resolve`, {
         method: 'POST',
       })
 
@@ -275,7 +275,7 @@ export default function OperatorSessionDetails() {
 
     try {
       // Call the ticket-transfer API
-      const response = await fetch('http://localhost:8000/ticket-transfer', {
+      const response = await fetch('http://localhost:8001/ticket-transfer', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
